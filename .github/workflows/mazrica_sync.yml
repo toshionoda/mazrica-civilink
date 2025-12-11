@@ -1,0 +1,63 @@
+# Mazrica → Google Sheets 定期同期ワークフロー
+# 毎日 9:00 JST (0:00 UTC) に実行
+
+name: Mazrica Sheets Sync
+
+on:
+  # 定期実行（毎日 0:00 UTC = 9:00 JST）
+  schedule:
+    - cron: '0 0 * * *'
+  
+  # 手動実行
+  workflow_dispatch:
+    inputs:
+      deal_type_id:
+        description: '案件タイプID（空の場合は全案件）'
+        required: false
+        type: string
+      sheet_name:
+        description: '出力先シート名'
+        required: false
+        default: '案件一覧'
+        type: string
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  sync:
+    name: Sync Mazrica to Google Sheets
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: 'mazrica/requirements.txt'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r mazrica/requirements.txt
+      
+      - name: Run sync script
+        env:
+          MAZRICA_API_KEY: ${{ secrets.MAZRICA_API_KEY }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          DEAL_TYPE_ID: ${{ github.event.inputs.deal_type_id || '' }}
+          SHEET_NAME: ${{ github.event.inputs.sheet_name || '案件一覧' }}
+        run: |
+          cd $GITHUB_WORKSPACE
+          python -m mazrica.sync_to_sheets
+      
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Mazrica sync failed. Check the logs for details."
+
