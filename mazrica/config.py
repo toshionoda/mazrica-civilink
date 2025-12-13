@@ -2,7 +2,6 @@
 Mazrica → Google Sheets 同期機能の設定
 """
 import os
-import json
 from typing import Optional
 
 
@@ -13,9 +12,9 @@ class Config:
     MAZRICA_API_KEY: str = os.environ.get("MAZRICA_API_KEY", "")
     MAZRICA_BASE_URL: str = "https://senses-open-api.mazrica.com/v1"
     
-    # Google Sheets設定
-    GOOGLE_CREDENTIALS_JSON: str = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
-    SPREADSHEET_ID: str = os.environ.get("SPREADSHEET_ID", "")
+    # Google Sheets設定（Apps Script連携）
+    APPS_SCRIPT_URL: str = os.environ.get("APPS_SCRIPT_URL", "")
+    APPS_SCRIPT_SECRET: str = os.environ.get("APPS_SCRIPT_SECRET", "")
     SHEET_NAME: str = os.environ.get("SHEET_NAME", "案件一覧")
     
     # 同期設定
@@ -30,16 +29,6 @@ class Config:
     API_PAGE_SIZE: int = 100  # 1ページあたりの取得件数
     
     @classmethod
-    def get_google_credentials(cls) -> Optional[dict]:
-        """Google認証情報をJSONとしてパース"""
-        if not cls.GOOGLE_CREDENTIALS_JSON:
-            return None
-        try:
-            return json.loads(cls.GOOGLE_CREDENTIALS_JSON)
-        except json.JSONDecodeError:
-            return None
-    
-    @classmethod
     def validate(cls) -> list[str]:
         """設定の検証を行い、エラーメッセージのリストを返す"""
         errors = []
@@ -47,13 +36,8 @@ class Config:
         if not cls.MAZRICA_API_KEY:
             errors.append("MAZRICA_API_KEY が設定されていません")
         
-        if not cls.GOOGLE_CREDENTIALS_JSON:
-            errors.append("GOOGLE_CREDENTIALS_JSON が設定されていません")
-        elif cls.get_google_credentials() is None:
-            errors.append("GOOGLE_CREDENTIALS_JSON のJSON形式が不正です")
-        
-        if not cls.SPREADSHEET_ID:
-            errors.append("SPREADSHEET_ID が設定されていません")
+        if not cls.APPS_SCRIPT_URL:
+            errors.append("APPS_SCRIPT_URL が設定されていません")
         
         return errors
 
@@ -69,4 +53,3 @@ def load_dotenv():
                 if line and not line.startswith("#") and "=" in line:
                     key, value = line.split("=", 1)
                     os.environ.setdefault(key.strip(), value.strip())
-

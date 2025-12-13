@@ -1,119 +1,96 @@
 """
-Google Sheets API クライアント
-スプレッドシートへのデータ書き込みを行う
+Google Sheets クライアント（Apps Script連携版）
+Apps Script WebアプリへのPOSTリクエストでスプレッドシートにデータを書き込む
 """
 import json
+import requests
 from typing import Optional, Any
-from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 
 from .config import Config
 
 
 class GoogleSheetsError(Exception):
-    """Google Sheets API エラー"""
+    """Google Sheets エラー"""
     pass
 
 
 class GoogleSheetsClient:
-    """Google Sheets APIクライアント"""
-    
-    SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+    """Google Sheets クライアント（Apps Script連携）"""
     
     def __init__(
         self,
-        credentials_json: Optional[str] = None,
-        spreadsheet_id: Optional[str] = None
+        apps_script_url: Optional[str] = None,
+        secret_key: Optional[str] = None
     ):
         """
         Args:
-            credentials_json: サービスアカウントのJSON文字列
-            spreadsheet_id: スプレッドシートID
+            apps_script_url: Apps ScriptのWebアプリURL
+            secret_key: オプションのセキュリティキー
         """
-        self.credentials_json = credentials_json or Config.GOOGLE_CREDENTIALS_JSON
-        self.spreadsheet_id = spreadsheet_id or Config.SPREADSHEET_ID
+        self.apps_script_url = apps_script_url or Config.APPS_SCRIPT_URL
+        self.secret_key = secret_key or getattr(Config, 'APPS_SCRIPT_SECRET', '')
         
-        self._service = None
+        if not self.apps_script_url:
+            raise GoogleSheetsError("APPS_SCRIPT_URL is required")
     
-    def _get_credentials(self) -> Credentials:
-        """認証情報を取得"""
-        if not self.credentials_json:
-            raise GoogleSheetsError("Google credentials JSON is required")
+    def _post(self, data: dict) -> dict:
+        """
+        Apps ScriptにPOSTリクエストを送信
+        
+        Args:
+            data: 送信するデータ
+        
+        Returns:
+            レスポンスJSON
+        """
+        if self.secret_key:
+            data['secret_key'] = self.secret_key
         
         try:
-            credentials_dict = json.loads(self.credentials_json)
-            return Credentials.from_service_account_info(
-                credentials_dict,
-                scopes=self.SCOPES
+            response = requests.post(
+                self.apps_script_url,
+                json=data,
+                headers={'Content-Type': 'application/json'},
+                timeout=300  # 5分タイムアウト（大量データ対応）
             )
-        except json.JSONDecodeError as e:
-            raise GoogleSheetsError(f"Invalid JSON format: {e}")
-        except Exception as e:
-            raise GoogleSheetsError(f"Failed to create credentials: {e}")
+            
+            # Apps Scriptはリダイレクトを返すことがある
+            if response.status_code in [301, 302]:
+                response = requests.post(
+                    response.headers.get('Location', self.apps_script_url),
+                    json=data,
+                    headers={'Content-Type': 'application/json'},
+                    timeout=300
+                )
+            
+            response.raise_for_status()
+            
+            result = response.json()
+            
+            if not result.get('success'):
+                raise GoogleSheetsError(f"Apps Script error: {result.get('message')}")
+            
+            return result
+            
+        except requests.exceptions.Timeout:
+            raise GoogleSheetsError("Request timeout - data may be too large")
+        except requests.exceptions.RequestException as e:
+            raise GoogleSheetsError(f"Request failed: {e}")
+        except json.JSONDecodeError:
+            raise GoogleSheetsError("Invalid response from Apps Script")
     
-    @property
-    def service(self):
-        """Sheets APIサービスを取得（遅延初期化）"""
-        if self._service is None:
-            credentials = self._get_credentials()
-            self._service = build("sheets", "v4", credentials=credentials)
-        return self._service
-    
-    def get_sheet_id(self, sheet_name: str) -> Optional[int]:
-        """シート名からシートIDを取得"""
+    def ping(self) -> bool:
+        """
+        接続テスト
+        
+        Returns:
+            接続成功ならTrue
+        """
         try:
-            spreadsheet = self.service.spreadsheets().get(
-                spreadsheetId=self.spreadsheet_id
-            ).execute()
-            
-            for sheet in spreadsheet.get("sheets", []):
-                props = sheet.get("properties", {})
-                if props.get("title") == sheet_name:
-                    return props.get("sheetId")
-            
-            return None
-        except HttpError as e:
-            raise GoogleSheetsError(f"Failed to get sheet info: {e}")
-    
-    def create_sheet(self, sheet_name: str) -> int:
-        """新しいシートを作成"""
-        try:
-            request = {
-                "requests": [{
-                    "addSheet": {
-                        "properties": {
-                            "title": sheet_name
-                        }
-                    }
-                }]
-            }
-            
-            result = self.service.spreadsheets().batchUpdate(
-                spreadsheetId=self.spreadsheet_id,
-                body=request
-            ).execute()
-            
-            return result["replies"][0]["addSheet"]["properties"]["sheetId"]
-        except HttpError as e:
-            raise GoogleSheetsError(f"Failed to create sheet: {e}")
-    
-    def ensure_sheet_exists(self, sheet_name: str) -> int:
-        """シートが存在することを確認（なければ作成）"""
-        sheet_id = self.get_sheet_id(sheet_name)
-        if sheet_id is None:
-            sheet_id = self.create_sheet(sheet_name)
-        return sheet_id
-    
-    def clear_sheet(self, sheet_name: str):
-        """シートの内容をクリア"""
-        try:
-            self.service.spreadsheets().values().clear(
-                spreadsheetId=self.spreadsheet_id,
-                range=f"'{sheet_name}'!A:Z"
-            ).execute()
-        except HttpError as e:
-            raise GoogleSheetsError(f"Failed to clear sheet: {e}")
+            result = self._post({'action': 'ping'})
+            return result.get('success', False)
+        except GoogleSheetsError:
+            return False
     
     def write_data(
         self,
@@ -128,110 +105,61 @@ class GoogleSheetsClient:
         Args:
             sheet_name: シート名
             data: 2次元配列のデータ（ヘッダー行を含む）
-            start_cell: 書き込み開始セル
+            start_cell: 書き込み開始セル（未使用、互換性のため）
             clear_before_write: 書き込み前にシートをクリアするか
         """
-        try:
-            # シートの存在確認・作成
-            self.ensure_sheet_exists(sheet_name)
-            
-            # クリア
-            if clear_before_write:
-                self.clear_sheet(sheet_name)
-            
-            # データ書き込み
-            range_name = f"'{sheet_name}'!{start_cell}"
-            
-            self.service.spreadsheets().values().update(
-                spreadsheetId=self.spreadsheet_id,
-                range=range_name,
-                valueInputOption="USER_ENTERED",
-                body={"values": data}
-            ).execute()
-            
-        except HttpError as e:
-            raise GoogleSheetsError(f"Failed to write data: {e}")
+        if not data:
+            raise GoogleSheetsError("No data to write")
+        
+        # ヘッダー行とデータ行を分離
+        headers = data[0] if data else []
+        rows = data[1:] if len(data) > 1 else []
+        
+        # データを文字列に変換（JSON互換性のため）
+        def convert_value(v):
+            if v is None:
+                return ""
+            return v
+        
+        converted_rows = [
+            [convert_value(cell) for cell in row]
+            for row in rows
+        ]
+        converted_headers = [convert_value(cell) for cell in headers]
+        
+        # Apps Scriptにデータを送信
+        payload = {
+            'action': 'write',
+            'sheet_name': sheet_name,
+            'headers': converted_headers,
+            'rows': converted_rows,
+            'clear_before': clear_before_write
+        }
+        
+        result = self._post(payload)
+        return result
+    
+    def clear_sheet(self, sheet_name: str):
+        """シートの内容をクリア"""
+        payload = {
+            'action': 'clear',
+            'sheet_name': sheet_name
+        }
+        return self._post(payload)
     
     def format_header_row(self, sheet_name: str):
-        """ヘッダー行の書式設定（太字、背景色）"""
-        try:
-            sheet_id = self.get_sheet_id(sheet_name)
-            if sheet_id is None:
-                return
-            
-            requests = [
-                # ヘッダー行を太字に
-                {
-                    "repeatCell": {
-                        "range": {
-                            "sheetId": sheet_id,
-                            "startRowIndex": 0,
-                            "endRowIndex": 1
-                        },
-                        "cell": {
-                            "userEnteredFormat": {
-                                "backgroundColor": {
-                                    "red": 0.9,
-                                    "green": 0.9,
-                                    "blue": 0.9
-                                },
-                                "textFormat": {
-                                    "bold": True
-                                }
-                            }
-                        },
-                        "fields": "userEnteredFormat(backgroundColor,textFormat)"
-                    }
-                },
-                # 1行目を固定
-                {
-                    "updateSheetProperties": {
-                        "properties": {
-                            "sheetId": sheet_id,
-                            "gridProperties": {
-                                "frozenRowCount": 1
-                            }
-                        },
-                        "fields": "gridProperties.frozenRowCount"
-                    }
-                }
-            ]
-            
-            self.service.spreadsheets().batchUpdate(
-                spreadsheetId=self.spreadsheet_id,
-                body={"requests": requests}
-            ).execute()
-            
-        except HttpError as e:
-            # 書式設定の失敗は警告のみ
-            print(f"Warning: Failed to format header: {e}")
+        """
+        ヘッダー行の書式設定
+        注: Apps Script側で自動的に行われるため、この関数は何もしない
+        """
+        pass  # Apps Script側で処理
     
     def auto_resize_columns(self, sheet_name: str, column_count: int):
-        """列幅を自動調整"""
-        try:
-            sheet_id = self.get_sheet_id(sheet_name)
-            if sheet_id is None:
-                return
-            
-            requests = [{
-                "autoResizeDimensions": {
-                    "dimensions": {
-                        "sheetId": sheet_id,
-                        "dimension": "COLUMNS",
-                        "startIndex": 0,
-                        "endIndex": column_count
-                    }
-                }
-            }]
-            
-            self.service.spreadsheets().batchUpdate(
-                spreadsheetId=self.spreadsheet_id,
-                body={"requests": requests}
-            ).execute()
-            
-        except HttpError as e:
-            # 列幅調整の失敗は警告のみ
-            print(f"Warning: Failed to auto-resize columns: {e}")
+        """
+        列幅を自動調整
+        注: Apps Script側で自動的に行われるため、この関数は何もしない
+        """
+        pass  # Apps Script側で処理
 
 
 # テスト用
@@ -241,6 +169,14 @@ if __name__ == "__main__":
     
     client = GoogleSheetsClient()
     
+    # 接続テスト
+    print("Testing connection...")
+    if client.ping():
+        print("Connection successful!")
+    else:
+        print("Connection failed!")
+        exit(1)
+    
     # テストデータ
     test_data = [
         ["案件ID", "案件名", "取引先", "商品名", "数量", "単価", "金額", "更新日時"],
@@ -249,9 +185,5 @@ if __name__ == "__main__":
     ]
     
     sheet_name = "テスト"
-    client.write_data(sheet_name, test_data)
-    client.format_header_row(sheet_name)
-    client.auto_resize_columns(sheet_name, len(test_data[0]))
-    
-    print("Test data written successfully!")
-
+    result = client.write_data(sheet_name, test_data)
+    print(f"Result: {result}")

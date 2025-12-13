@@ -33,15 +33,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       
-      - name: Debug - List files
-        run: |
-          echo "=== Current directory ==="
-          pwd
-          echo "=== Root files ==="
-          ls -la
-          echo "=== Mazrica directory ==="
-          ls -la mazrica/ || echo "mazrica directory not found"
-      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -55,8 +46,7 @@ jobs:
       - name: Run sync script
         env:
           MAZRICA_API_KEY: ${{ secrets.MAZRICA_API_KEY }}
-          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
-          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          APPS_SCRIPT_URL: ${{ secrets.APPS_SCRIPT_URL }}
           DEAL_TYPE_ID: ${{ github.event.inputs.deal_type_id || '' }}
           SHEET_NAME: ${{ github.event.inputs.sheet_name || '案件一覧' }}
         run: |
@@ -67,4 +57,3 @@ jobs:
         if: failure()
         run: |
           echo "::error::Mazrica sync failed. Check the logs for details."
-
