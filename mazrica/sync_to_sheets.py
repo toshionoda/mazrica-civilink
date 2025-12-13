@@ -194,14 +194,17 @@ def sync_deals_to_sheets(
     stats = {
         "total_deals": 0,
         "filtered_deals": 0,
-        "total_rows": 0,
+        "existing_ids": 0,
+        "new_rows": 0,
+        "deleted_rows": 0,
+        "skipped_rows": 0,
         "synced_at": datetime.now().isoformat(),
         "success": False,
         "error": None
     }
     
     try:
-        logger.info("Starting sync process...")
+        logger.info("Starting differential sync process...")
         logger.info(f"Filters: product_name='{product_name_filter}', phase_names={phase_name_filters}")
         
         # Mazricaクライアント初期化
@@ -227,27 +230,52 @@ def sync_deals_to_sheets(
             deals = all_deals
             stats["filtered_deals"] = len(deals)
         
-        # スプレッドシート用データ作成
-        logger.info("Converting deals to spreadsheet format...")
-        data = [HEADERS]
-        for deal in deals:
+        # 既存の案件IDを取得
+        logger.info(f"Getting existing IDs from sheet '{sheet_name}'...")
+        existing_ids = sheets.get_existing_ids(sheet_name, id_column=1)
+        existing_id_set = set(str(id) for id in existing_ids)
+        stats["existing_ids"] = len(existing_ids)
+        logger.info(f"Found {len(existing_ids)} existing IDs in sheet")
+        
+        # Mazricaの案件IDセットを作成
+        mazrica_id_set = set(str(deal.id) for deal in deals)
+        
+        # 新規案件を判定（Mazricaにあり、シートにない）
+        new_deals = [d for d in deals if str(d.id) not in existing_id_set]
+        logger.info(f"New deals to add: {len(new_deals)}")
+        
+        # 削除対象を判定（シートにあり、Mazricaにない）
+        delete_ids = [id for id in existing_ids if str(id) not in mazrica_id_set]
+        logger.info(f"Deals to delete: {len(delete_ids)}")
+        
+        # スキップ対象を計算
+        stats["skipped_rows"] = len(existing_id_set) - len(delete_ids)
+        
+        # 新規行のデータ作成
+        new_rows = []
+        for deal in new_deals:
             rows = deal_to_rows(deal)
-            data.extend(rows)
+            new_rows.extend(rows)
         
-        stats["total_rows"] = len(data) - 1  # ヘッダー行を除く
-        logger.info(f"Total rows to write: {stats['total_rows']}")
+        stats["new_rows"] = len(new_rows)
+        stats["deleted_rows"] = len(delete_ids)
         
-        # スプレッドシートに書き込み
-        logger.info(f"Writing data to sheet '{sheet_name}'...")
-        sheets.write_data(sheet_name, data)
+        # 差分同期を実行
+        logger.info(f"Syncing to sheet '{sheet_name}'...")
+        logger.info(f"  Adding {len(new_rows)} rows, Deleting {len(delete_ids)} rows")
         
-        # 書式設定
-        logger.info("Applying formatting...")
-        sheets.format_header_row(sheet_name)
-        sheets.auto_resize_columns(sheet_name, len(HEADERS))
+        result = sheets.sync_data(
+            sheet_name=sheet_name,
+            headers=HEADERS,
+            new_rows=new_rows,
+            delete_ids=delete_ids,
+            id_column=1
+        )
+        
+        logger.info(f"Sync result: {result.get('message')}")
         
         stats["success"] = True
-        logger.info("Sync completed successfully!")
+        logger.info("Differential sync completed successfully!")
         
     except MazricaAPIError as e:
         stats["error"] = f"Mazrica API Error: {e.message}"
@@ -281,7 +309,10 @@ def main():
     logger.info("=== Sync Statistics ===")
     logger.info(f"Total deals fetched: {stats['total_deals']}")
     logger.info(f"Deals after filter: {stats['filtered_deals']}")
-    logger.info(f"Total rows: {stats['total_rows']}")
+    logger.info(f"Existing IDs in sheet: {stats['existing_ids']}")
+    logger.info(f"New rows added: {stats['new_rows']}")
+    logger.info(f"Rows deleted: {stats['deleted_rows']}")
+    logger.info(f"Rows skipped: {stats['skipped_rows']}")
     logger.info(f"Synced at: {stats['synced_at']}")
     logger.info(f"Success: {stats['success']}")
     

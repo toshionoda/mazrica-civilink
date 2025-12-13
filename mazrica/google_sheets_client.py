@@ -158,6 +158,72 @@ class GoogleSheetsClient:
         }
         return self._post(payload)
     
+    def get_existing_ids(self, sheet_name: str, id_column: int = 1) -> list:
+        """
+        既存の案件IDリストを取得
+        
+        Args:
+            sheet_name: シート名
+            id_column: 案件IDの列番号（1始まり）
+        
+        Returns:
+            既存の案件IDリスト
+        """
+        payload = {
+            'action': 'get_existing_ids',
+            'sheet_name': sheet_name,
+            'id_column': id_column
+        }
+        
+        result = self._post(payload)
+        return result.get('ids', [])
+    
+    def sync_data(
+        self,
+        sheet_name: str,
+        headers: list[str],
+        new_rows: list[list[Any]],
+        delete_ids: list,
+        id_column: int = 1
+    ) -> dict:
+        """
+        差分同期を実行（新規追加・削除）
+        
+        Args:
+            sheet_name: シート名
+            headers: ヘッダー行
+            new_rows: 新規追加する行のリスト
+            delete_ids: 削除する案件IDのリスト
+            id_column: 案件IDの列番号（1始まり）
+        
+        Returns:
+            同期結果
+        """
+        # データを文字列に変換（JSON互換性のため）
+        def convert_value(v):
+            if v is None:
+                return ""
+            return v
+        
+        converted_rows = [
+            [convert_value(cell) for cell in row]
+            for row in new_rows
+        ]
+        converted_headers = [convert_value(cell) for cell in headers]
+        converted_delete_ids = [convert_value(id) for id in delete_ids]
+        
+        payload = {
+            'action': 'sync',
+            'sheet_name': sheet_name,
+            'headers': converted_headers,
+            'new_rows': converted_rows,
+            'delete_ids': converted_delete_ids,
+            'id_column': id_column
+        }
+        
+        result = self._post(payload)
+        return result
+    
     def format_header_row(self, sheet_name: str):
         """
         ヘッダー行の書式設定
