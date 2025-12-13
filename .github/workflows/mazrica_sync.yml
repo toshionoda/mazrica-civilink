@@ -33,12 +33,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       
+      - name: Debug - List files
+        run: |
+          echo "=== Current directory ==="
+          pwd
+          echo "=== Root files ==="
+          ls -la
+          echo "=== Mazrica directory ==="
+          ls -la mazrica/ || echo "mazrica directory not found"
+      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-          cache-dependency-path: 'mazrica/requirements.txt'
       
       - name: Install dependencies
         run: |
