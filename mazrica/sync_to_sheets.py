@@ -39,7 +39,40 @@ HEADERS = [
     "受注予定日",
     "作成日時",
     "更新日時",
+    "ユーザー数",  # 案件名から抽出
+    "期間",        # 案件名から抽出
 ]
+
+
+import re
+
+def extract_users_and_period(deal_name: str) -> tuple[str, str]:
+    """
+    案件名からユーザー数と期間を抽出
+    
+    例: "CiviLink_会社名_部署_機能_無料トライアル_10ユーザー_3カ月"
+    → ("10", "3カ月")
+    
+    Args:
+        deal_name: 案件名
+    
+    Returns:
+        (ユーザー数, 期間) のタプル
+    """
+    users = ""
+    period = ""
+    
+    # ユーザー数を抽出（例: "10ユーザー", "Xユーザー"）
+    users_match = re.search(r'(\d+|X)ユーザー', deal_name)
+    if users_match:
+        users = users_match.group(1)
+    
+    # 期間を抽出（例: "3カ月", "Xカ月", "12ヶ月"）
+    period_match = re.search(r'(\d+|X)(カ月|ヶ月|か月)', deal_name)
+    if period_match:
+        period = period_match.group(1) + period_match.group(2)
+    
+    return users, period
 
 
 def deal_to_rows(deal: Deal) -> list[list]:
@@ -48,6 +81,9 @@ def deal_to_rows(deal: Deal) -> list[list]:
     商品内訳がある場合は商品ごとに行を作成
     """
     rows = []
+    
+    # 案件名からユーザー数と期間を抽出
+    users, period = extract_users_and_period(deal.name)
     
     # 共通データ
     base_data = [
@@ -63,6 +99,9 @@ def deal_to_rows(deal: Deal) -> list[list]:
     # 商品名は deal.product_name から取得
     product_name = deal.product_name or ""
     
+    # 共通の末尾データ（ユーザー数、期間）
+    suffix_data = [users, period]
+    
     if deal.product_details:
         # 商品内訳詳細がある場合は商品ごとに行を作成
         for pd in deal.product_details:
@@ -75,7 +114,7 @@ def deal_to_rows(deal: Deal) -> list[list]:
                 deal.expected_contract_date or "",
                 deal.created_at,
                 deal.updated_at,
-            ]
+            ] + suffix_data
             rows.append(row)
     else:
         # 商品内訳がない場合は1行のみ（商品名は deal.product_name を使用）
@@ -88,7 +127,7 @@ def deal_to_rows(deal: Deal) -> list[list]:
             deal.expected_contract_date or "",
             deal.created_at,
             deal.updated_at,
-        ]
+        ] + suffix_data
         rows.append(row)
     
     return rows
