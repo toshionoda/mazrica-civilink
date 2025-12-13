@@ -91,9 +91,44 @@ def deal_to_rows(deal: Deal) -> list[list]:
     return rows
 
 
+def filter_deal(deal: Deal, product_name_filter: str, phase_name_filter: str) -> bool:
+    """
+    案件がフィルタ条件に一致するかチェック
+    
+    Args:
+        deal: 案件データ
+        product_name_filter: 商品名フィルタ（部分一致、空の場合はフィルタなし）
+        phase_name_filter: フェーズ名フィルタ（完全一致、空の場合はフィルタなし）
+    
+    Returns:
+        条件に一致する場合はTrue
+    """
+    # フェーズ名フィルタ
+    if phase_name_filter:
+        if deal.phase_name != phase_name_filter:
+            return False
+    
+    # 商品名フィルタ（商品内訳のいずれかに含まれているか）
+    if product_name_filter:
+        product_name_lower = product_name_filter.lower()
+        has_matching_product = False
+        
+        for pd in deal.product_details:
+            if product_name_lower in pd.product_name.lower():
+                has_matching_product = True
+                break
+        
+        if not has_matching_product:
+            return False
+    
+    return True
+
+
 def sync_deals_to_sheets(
     deal_type_id: Optional[int] = None,
-    sheet_name: Optional[str] = None
+    sheet_name: Optional[str] = None,
+    product_name_filter: Optional[str] = None,
+    phase_name_filter: Optional[str] = None
 ) -> dict:
     """
     Mazricaの案件一覧をGoogle スプレッドシートに同期
@@ -101,15 +136,20 @@ def sync_deals_to_sheets(
     Args:
         deal_type_id: 同期する案件タイプID（Noneの場合は全案件）
         sheet_name: 出力先シート名
+        product_name_filter: 商品名フィルタ（部分一致）
+        phase_name_filter: フェーズ名フィルタ（完全一致）
     
     Returns:
         同期結果の統計情報
     """
     sheet_name = sheet_name or Config.SHEET_NAME
     deal_type_id = deal_type_id or Config.DEAL_TYPE_ID
+    product_name_filter = product_name_filter if product_name_filter is not None else Config.FILTER_PRODUCT_NAME
+    phase_name_filter = phase_name_filter if phase_name_filter is not None else Config.FILTER_PHASE_NAME
     
     stats = {
         "total_deals": 0,
+        "filtered_deals": 0,
         "total_rows": 0,
         "synced_at": datetime.now().isoformat(),
         "success": False,
@@ -118,6 +158,7 @@ def sync_deals_to_sheets(
     
     try:
         logger.info("Starting sync process...")
+        logger.info(f"Filters: product_name='{product_name_filter}', phase_name='{phase_name_filter}'")
         
         # Mazricaクライアント初期化
         logger.info("Initializing Mazrica client...")
@@ -129,9 +170,18 @@ def sync_deals_to_sheets(
         
         # 案件データ取得
         logger.info(f"Fetching deals from Mazrica (deal_type_id={deal_type_id})...")
-        deals = mazrica.fetch_deals_with_products(deal_type_id=deal_type_id)
-        stats["total_deals"] = len(deals)
-        logger.info(f"Fetched {len(deals)} deals")
+        all_deals = mazrica.fetch_deals_with_products(deal_type_id=deal_type_id)
+        stats["total_deals"] = len(all_deals)
+        logger.info(f"Fetched {len(all_deals)} deals")
+        
+        # フィルタリング
+        if product_name_filter or phase_name_filter:
+            deals = [d for d in all_deals if filter_deal(d, product_name_filter, phase_name_filter)]
+            stats["filtered_deals"] = len(deals)
+            logger.info(f"After filtering: {len(deals)} deals")
+        else:
+            deals = all_deals
+            stats["filtered_deals"] = len(deals)
         
         # スプレッドシート用データ作成
         logger.info("Converting deals to spreadsheet format...")
@@ -185,7 +235,8 @@ def main():
     
     # 結果出力
     logger.info("=== Sync Statistics ===")
-    logger.info(f"Total deals: {stats['total_deals']}")
+    logger.info(f"Total deals fetched: {stats['total_deals']}")
+    logger.info(f"Deals after filter: {stats['filtered_deals']}")
     logger.info(f"Total rows: {stats['total_rows']}")
     logger.info(f"Synced at: {stats['synced_at']}")
     logger.info(f"Success: {stats['success']}")

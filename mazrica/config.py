@@ -24,6 +24,10 @@ class Config:
         else None
     )
     
+    # フィルタ設定
+    FILTER_PRODUCT_NAME: str = os.environ.get("FILTER_PRODUCT_NAME", "civilink")  # 商品名フィルタ
+    FILTER_PHASE_NAME: str = os.environ.get("FILTER_PHASE_NAME", "受注")  # フェーズフィルタ
+    
     # API制限
     API_RATE_LIMIT: float = 0.34  # 3リクエスト/秒 = 0.33秒間隔
     API_PAGE_SIZE: int = 100  # 1ページあたりの取得件数
