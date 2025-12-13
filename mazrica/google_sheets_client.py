@@ -43,25 +43,36 @@ class GoogleSheetsClient:
         Returns:
             レスポンスJSON
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
         if self.secret_key:
             data['secret_key'] = self.secret_key
         
         try:
-            response = requests.post(
+            # Apps Scriptはリダイレクトを返すため、allow_redirects=Trueで自動追従
+            # セッションを使用してCookieを保持
+            session = requests.Session()
+            
+            logger.info(f"Sending POST request to Apps Script...")
+            
+            response = session.post(
                 self.apps_script_url,
                 json=data,
-                headers={'Content-Type': 'application/json'},
-                timeout=300  # 5分タイムアウト（大量データ対応）
+                headers={
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                timeout=300,  # 5分タイムアウト（大量データ対応）
+                allow_redirects=True  # リダイレクトを自動追従
             )
             
-            # Apps Scriptはリダイレクトを返すことがある
-            if response.status_code in [301, 302]:
-                response = requests.post(
-                    response.headers.get('Location', self.apps_script_url),
-                    json=data,
-                    headers={'Content-Type': 'application/json'},
-                    timeout=300
-                )
+            logger.info(f"Response status: {response.status_code}")
+            logger.info(f"Response URL: {response.url}")
+            
+            # レスポンスの内容をログ出力（デバッグ用）
+            if response.status_code != 200:
+                logger.error(f"Response text: {response.text[:500]}")
             
             response.raise_for_status()
             
