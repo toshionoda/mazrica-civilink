@@ -60,11 +60,14 @@ def deal_to_rows(deal: Deal) -> list[list]:
         deal.user_name or "",
     ]
     
+    # 商品名は deal.product_name から取得
+    product_name = deal.product_name or ""
+    
     if deal.product_details:
-        # 商品内訳がある場合は商品ごとに行を作成
+        # 商品内訳詳細がある場合は商品ごとに行を作成
         for pd in deal.product_details:
             row = base_data + [
-                pd.product_name,
+                pd.product_name or product_name,  # 商品内訳の商品名、なければ案件の商品名
                 pd.quantity if pd.quantity is not None else "",
                 pd.unit_price if pd.unit_price is not None else "",
                 pd.amount if pd.amount is not None else "",
@@ -75,9 +78,9 @@ def deal_to_rows(deal: Deal) -> list[list]:
             ]
             rows.append(row)
     else:
-        # 商品内訳がない場合は1行のみ
+        # 商品内訳がない場合は1行のみ（商品名は deal.product_name を使用）
         row = base_data + [
-            "",  # 商品名
+            product_name,  # 商品名
             "",  # 数量
             "",  # 単価
             "",  # 商品金額
@@ -108,18 +111,20 @@ def filter_deal(deal: Deal, product_name_filter: str, phase_name_filter: str) ->
         if deal.phase_name != phase_name_filter:
             return False
     
-    # 商品名フィルタ（商品内訳のいずれかに含まれているか）
+    # 商品名フィルタ（deal.product_name を使用）
     if product_name_filter:
         product_name_lower = product_name_filter.lower()
-        has_matching_product = False
         
+        # まず案件の商品名（product.name）をチェック
+        if deal.product_name and product_name_lower in deal.product_name.lower():
+            return True
+        
+        # 商品内訳詳細もチェック
         for pd in deal.product_details:
-            if product_name_lower in pd.product_name.lower():
-                has_matching_product = True
-                break
+            if pd.product_name and product_name_lower in pd.product_name.lower():
+                return True
         
-        if not has_matching_product:
-            return False
+        return False
     
     return True
 

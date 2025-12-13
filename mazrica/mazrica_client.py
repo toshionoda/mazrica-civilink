@@ -36,7 +36,9 @@ class Deal:
     created_at: str
     updated_at: str
     user_name: Optional[str]
-    product_details: list[ProductDetail]
+    product_name: Optional[str]  # 商品名（product.name）
+    product_id: Optional[int]    # 商品ID（product.id）
+    product_details: list[ProductDetail]  # 商品内訳詳細（dealProductDetails）
     custom_fields: dict
 
 
@@ -193,10 +195,13 @@ class MazricaClient:
         # 担当者情報
         user = data.get("user", {}) or {}
         
-        # 商品内訳
+        # 商品情報（product フィールド）
+        product = data.get("product", {}) or {}
+        
+        # 商品内訳詳細（dealProductDetails フィールド）
         product_details = [
             self._parse_product_detail(pd)
-            for pd in data.get("productDetails", [])
+            for pd in data.get("dealProductDetails", [])
         ]
         
         return Deal(
@@ -212,6 +217,8 @@ class MazricaClient:
             created_at=data.get("createdAt", ""),
             updated_at=data.get("updatedAt", ""),
             user_name=user.get("name"),
+            product_name=product.get("name"),
+            product_id=product.get("id"),
             product_details=product_details,
             custom_fields=data.get("customFields", {})
         )
