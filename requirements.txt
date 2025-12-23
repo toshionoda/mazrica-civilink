@@ -1,0 +1,4 @@
+requests>=2.31.0
+slack-sdk>=3.27.0
+playwright>=1.40.0
+
