@@ -1,0 +1,35 @@
+name: Civilink Sync
+
+on:
+  schedule:
+    # 毎日 08:00 JST (= 23:00 UTC 前日)
+    - cron: '0 23 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Run Civilink sync
+        env:
+          CIVILINK_EMAIL: ${{ secrets.CIVILINK_EMAIL }}
+          CIVILINK_PASSWORD: ${{ secrets.CIVILINK_PASSWORD }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          HEADLESS: "true"
+        run: python civilink_org_users.py
