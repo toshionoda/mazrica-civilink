@@ -80,14 +80,14 @@ class CivilinkScraper:
         """組織とユーザー情報を取得"""
         results = []
 
-        # テーブルの行を取得
-        rows = self.page.locator("table tbody tr").all()
+        # テーブルの行を取得（tbodyがない可能性があるため、trクラスで取得）
+        rows = self.page.locator("tr.rounded-\\[8px\\]").all()
         print(f"組織数: {len(rows)}")
 
         for i, row in enumerate(rows):
             try:
-                # 招待中ラベルがあるかチェック
-                invited_badge = row.locator("text=招待中")
+                # 招待中ラベルがあるかチェック（オレンジ色のバッジ）
+                invited_badge = row.locator("span.bg-orange-100")
                 if invited_badge.count() > 0:
                     print(f"  [{i+1}] スキップ: 招待中")
                     continue
@@ -121,7 +121,7 @@ class CivilinkScraper:
                 }
 
                 # 三点リーダーをクリック
-                menu_button = row.locator('button:has-text("...")').first
+                menu_button = row.locator('button[data-slot="dropdown-menu-trigger"]').first
                 if menu_button.count() == 0:
                     # 別のセレクタを試す
                     menu_button = row.locator('[aria-label="メニュー"], [data-testid="menu-button"]').first
