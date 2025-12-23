@@ -76,18 +76,29 @@ class CivilinkScraper:
         self.page.goto(self.ACCOUNTS_URL)
         self.page.wait_for_load_state("networkidle")
 
+        # デバッグ: 現在のURL確認
+        print(f"現在のURL: {self.page.url}")
+        print(f"ページタイトル: {self.page.title()}")
+
+        # SPAの動的コンテンツを待機（最大30秒）
+        print("テーブルの読み込みを待機中...")
+        try:
+            # テーブルまたはtr要素が表示されるまで待機
+            self.page.wait_for_selector("table, tr", timeout=30000)
+            print("テーブル要素を検出")
+        except PlaywrightTimeoutError:
+            print("テーブル要素が見つかりません（30秒待機後）")
+
         # 追加の待機（動的コンテンツのため）
-        self.page.wait_for_timeout(3000)
+        self.page.wait_for_timeout(5000)
 
         # デバッグ: スクリーンショット保存
         self.page.screenshot(path="debug_accounts_page.png")
         print("スクリーンショット保存: debug_accounts_page.png")
 
-        # デバッグ: 現在のURL確認
-        print(f"現在のURL: {self.page.url}")
-
-        # デバッグ: ページタイトル確認
-        print(f"ページタイトル: {self.page.title()}")
+        # デバッグ: ページのHTML構造を出力（先頭2000文字）
+        html_content = self.page.content()
+        print(f"ページHTML（先頭2000文字）:\n{html_content[:2000]}")
 
     def get_organizations_and_users(self) -> list[dict]:
         """組織とユーザー情報を取得"""
