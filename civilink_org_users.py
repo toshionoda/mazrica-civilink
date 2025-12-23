@@ -76,12 +76,26 @@ class CivilinkScraper:
         self.page.goto(self.ACCOUNTS_URL)
         self.page.wait_for_load_state("networkidle")
 
+        # テーブルが表示されるまで待機
+        try:
+            self.page.wait_for_selector("table", timeout=10000)
+            print("テーブル検出")
+        except Exception as e:
+            print(f"テーブル待機エラー: {e}")
+
+        # 追加の待機（動的コンテンツのため）
+        self.page.wait_for_timeout(2000)
+
     def get_organizations_and_users(self) -> list[dict]:
         """組織とユーザー情報を取得"""
         results = []
 
-        # テーブルの行を取得（tbodyがない可能性があるため、trクラスで取得）
-        rows = self.page.locator("tr.rounded-\\[8px\\]").all()
+        # デバッグ: ページ内のtr要素数を確認
+        all_tr = self.page.locator("tr").all()
+        print(f"デバッグ: 全tr要素数: {len(all_tr)}")
+
+        # テーブルの行を取得（CSSのエスケープを回避）
+        rows = self.page.locator("table tr").all()
         print(f"組織数: {len(rows)}")
 
         for i, row in enumerate(rows):
