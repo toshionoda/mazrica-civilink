@@ -54,20 +54,61 @@ class CivilinkScraper:
         print(f"ログイン中: {self.LOGIN_URL}")
         self.page.goto(self.LOGIN_URL)
 
+        # ページ読み込み完了を待機
+        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_timeout(2000)
+
+        # デバッグ: スクリーンショット
+        self.page.screenshot(path="debug_login_page.png")
+        print(f"ログインページURL: {self.page.url}")
+
         # ログインフォームに入力
-        self.page.fill('input[type="email"], input[name="email"]', self.email)
-        self.page.fill('input[type="password"], input[name="password"]', self.password)
+        email_input = self.page.locator('input[type="email"], input[name="email"]').first
+        password_input = self.page.locator('input[type="password"], input[name="password"]').first
+
+        email_input.wait_for(timeout=10000)
+        email_input.fill(self.email)
+        password_input.fill(self.password)
+
+        print("認証情報を入力完了")
 
         # ログインボタンをクリック
-        self.page.click('button:has-text("メールアドレスでログイン")')
+        login_button = self.page.locator('button:has-text("メールアドレスでログイン")').first
+        login_button.click()
 
-        # ログイン完了を待機（URLが変わるか、ダッシュボードに遷移するまで）
+        print("ログインボタンをクリック")
+
+        # ログイン処理完了を待機（ログインフォームが消えるまで）
         try:
-            self.page.wait_for_url(f"{self.BASE_URL}/**", timeout=15000)
+            # ログインボタンが消えるか、URLが/loginから変わるまで待機
+            self.page.wait_for_timeout(3000)
+
+            # ログイン後のページを確認
+            self.page.wait_for_load_state("networkidle")
+            self.page.wait_for_timeout(2000)
+
+            current_url = self.page.url
+            print(f"ログイン後URL: {current_url}")
+
+            # デバッグ: スクリーンショット
+            self.page.screenshot(path="debug_after_login.png")
+
+            # /login ページに留まっていたら失敗
+            if "/login" in current_url:
+                print("ログイン失敗: ログインページに留まっています")
+                return False
+
+            # callbackUrl付きのリダイレクトはログインページへの戻り
+            if "callbackUrl" in current_url:
+                print("ログイン失敗: 認証されていません")
+                return False
+
             print("ログイン成功")
             return True
+
         except PlaywrightTimeoutError:
             print("ログイン失敗: タイムアウト")
+            self.page.screenshot(path="debug_login_timeout.png")
             return False
 
     def navigate_to_accounts(self):
