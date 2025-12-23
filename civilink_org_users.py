@@ -59,7 +59,7 @@ class CivilinkScraper:
         self.page.fill('input[type="password"], input[name="password"]', self.password)
 
         # ログインボタンをクリック
-        self.page.click('button[type="submit"]')
+        self.page.click('button:has-text("メールアドレスでログイン")')
 
         # ログイン完了を待機（URLが変わるか、ダッシュボードに遷移するまで）
         try:
