@@ -306,17 +306,33 @@ class CivilinkScraper:
     def _close_popup(self):
         """ポップアップを閉じる"""
         try:
-            # ×ボタンを探す
-            close_btn = self.page.locator('button:has-text("×"), [aria-label="閉じる"], .close-button').first
-            if close_btn.count() > 0:
-                close_btn.click()
+            # organization_users_id のポップアップを閉じる
+            popup = self.page.locator('#organization_users_id')
+
+            if popup.count() > 0:
+                # ポップアップ内の×ボタンを探す
+                close_btn = popup.locator('button:has-text("×"), button:has-text("閉じる"), [aria-label="閉じる"]').first
+                if close_btn.count() > 0:
+                    close_btn.click()
+                    print("    ×ボタンでポップアップを閉じました")
+                else:
+                    # Escapeキーで閉じる
+                    self.page.keyboard.press("Escape")
+                    print("    Escapeキーでポップアップを閉じました")
+
+                # ポップアップが消えるまで待機
+                popup.wait_for(state="hidden", timeout=5000)
             else:
-                # Escapeキーで閉じる
                 self.page.keyboard.press("Escape")
 
-            self.page.wait_for_timeout(300)
-        except Exception:
+            self.page.wait_for_timeout(500)
+        except Exception as e:
+            print(f"    ポップアップを閉じる際のエラー: {e}")
+            # 強制的にEscapeキーを複数回押す
             self.page.keyboard.press("Escape")
+            self.page.wait_for_timeout(300)
+            self.page.keyboard.press("Escape")
+            self.page.wait_for_timeout(500)
 
 
 def main():
