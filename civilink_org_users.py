@@ -54,9 +54,9 @@ class CivilinkScraper:
         print(f"ログイン中: {self.LOGIN_URL}")
         self.page.goto(self.LOGIN_URL)
 
-        # ページ読み込み完了を待機
-        self.page.wait_for_load_state("networkidle")
-        self.page.wait_for_timeout(2000)
+        # ページ読み込み完了を待機（networkidleはSPAでハングするためloadを使用）
+        self.page.wait_for_load_state("load", timeout=30000)
+        self.page.wait_for_timeout(3000)
 
         # デバッグ: スクリーンショット
         self.page.screenshot(path="debug_login_page.png")
@@ -84,8 +84,8 @@ class CivilinkScraper:
             self.page.wait_for_timeout(3000)
 
             # ログイン後のページを確認
-            self.page.wait_for_load_state("networkidle")
-            self.page.wait_for_timeout(2000)
+            self.page.wait_for_load_state("load", timeout=30000)
+            self.page.wait_for_timeout(3000)
 
             current_url = self.page.url
             print(f"ログイン後URL: {current_url}")
@@ -115,7 +115,7 @@ class CivilinkScraper:
         """アカウント一覧ページに遷移"""
         print(f"アカウント一覧に遷移: {self.ACCOUNTS_URL}")
         self.page.goto(self.ACCOUNTS_URL)
-        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_load_state("load", timeout=30000)
 
         # デバッグ: 現在のURL確認
         print(f"現在のURL: {self.page.url}")
