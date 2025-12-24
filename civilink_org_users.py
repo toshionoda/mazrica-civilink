@@ -208,14 +208,30 @@ class CivilinkScraper:
                     menu_button = row.locator('[aria-label="メニュー"], [data-testid="menu-button"]').first
 
                 if menu_button.count() > 0:
+                    print(f"    三点リーダークリック")
                     menu_button.click()
-                    self.page.wait_for_timeout(300)
+                    self.page.wait_for_timeout(500)
+
+                    # ドロップダウンメニューが表示されるまで待機
+                    dropdown = self.page.locator('[role="menu"], [data-radix-menu-content]')
+                    print(f"    ドロップダウンメニュー数: {dropdown.count()}")
 
                     # 「組織ユーザー」メニューをクリック
                     user_menu = self.page.locator('text=組織ユーザー').first
+                    print(f"    組織ユーザーメニュー数: {user_menu.count()}")
                     if user_menu.count() > 0:
                         user_menu.click()
-                        self.page.wait_for_timeout(500)
+                        print(f"    組織ユーザーメニュークリック")
+                        self.page.wait_for_timeout(1000)  # ポップアップ表示待ち
+
+                        # ポップアップが表示されるまで待機
+                        popup = self.page.locator('#organization_users_id')
+                        print(f"    ポップアップ要素数: {popup.count()}")
+                        try:
+                            popup.wait_for(state="visible", timeout=5000)
+                            print(f"    ポップアップ表示確認")
+                        except Exception as e:
+                            print(f"    ポップアップ表示待ちエラー: {e}")
 
                         # ポップアップからユーザー情報を取得
                         users = self._get_users_from_popup()
@@ -253,9 +269,11 @@ class CivilinkScraper:
         users = []
 
         try:
-            # ポップアップが表示されるまで待機
-            popup = self.page.locator('[role="dialog"], .modal, [data-testid="modal"]').first
-            popup.wait_for(timeout=5000)
+            # ポップアップを取得（#organization_users_id を使用）
+            popup = self.page.locator('#organization_users_id')
+            if popup.count() == 0:
+                print("    ポップアップが見つかりません")
+                return users
 
             # ユーザー行を取得（ポップアップ内のテーブルまたはリスト）
             user_rows = popup.locator("table tbody tr, .user-row, [data-testid='user-row']").all()
