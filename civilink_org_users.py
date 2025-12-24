@@ -312,8 +312,7 @@ def main():
     # 環境変数から認証情報を取得
     email = os.environ.get("CIVILINK_EMAIL")
     password = os.environ.get("CIVILINK_PASSWORD")
-    google_creds = os.environ.get("GOOGLE_CREDENTIALS_JSON")
-    spreadsheet_id = os.environ.get("SPREADSHEET_ID")
+    apps_script_url = os.environ.get("APPS_SCRIPT_URL")
 
     # バリデーション
     errors = []
@@ -321,10 +320,8 @@ def main():
         errors.append("CIVILINK_EMAIL が設定されていません")
     if not password:
         errors.append("CIVILINK_PASSWORD が設定されていません")
-    if not google_creds:
-        errors.append("GOOGLE_CREDENTIALS_JSON が設定されていません")
-    if not spreadsheet_id:
-        errors.append("SPREADSHEET_ID が設定されていません")
+    if not apps_script_url:
+        errors.append("APPS_SCRIPT_URL が設定されていません")
 
     if errors:
         for e in errors:
@@ -359,8 +356,7 @@ def main():
 
     try:
         client = GoogleSheetsClient(
-            credentials_json=google_creds,
-            spreadsheet_id=spreadsheet_id
+            apps_script_url=apps_script_url
         )
 
         # ヘッダー行
