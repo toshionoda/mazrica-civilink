@@ -9,6 +9,7 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # 最大10分でタイムアウト
 
     steps:
       - name: Checkout repository
@@ -29,8 +30,7 @@ jobs:
         env:
           CIVILINK_EMAIL: ${{ secrets.CIVILINK_EMAIL }}
           CIVILINK_PASSWORD: ${{ secrets.CIVILINK_PASSWORD }}
-          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
-          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          APPS_SCRIPT_URL: ${{ secrets.APPS_SCRIPT_URL }}
           HEADLESS: "true"
         run: python civilink_org_users.py
 
