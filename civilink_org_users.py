@@ -310,28 +310,31 @@ class CivilinkScraper:
             popup = self.page.locator('#organization_users_id')
 
             if popup.count() > 0:
-                # ポップアップ内の×ボタンを探す
-                close_btn = popup.locator('button:has-text("×"), button:has-text("閉じる"), [aria-label="閉じる"]').first
-                if close_btn.count() > 0:
-                    close_btn.click()
-                    print("    ×ボタンでポップアップを閉じました")
+                # 方法1: JavaScriptで直接削除（最も確実）
+                self.page.evaluate("document.getElementById('organization_users_id')?.remove()")
+                print("    JavaScriptでポップアップを削除しました")
+                self.page.wait_for_timeout(300)
+
+                # 削除されたか確認
+                if popup.count() == 0:
+                    print("    ポップアップ削除成功")
                 else:
-                    # Escapeキーで閉じる
-                    self.page.keyboard.press("Escape")
-                    print("    Escapeキーでポップアップを閉じました")
-
-                # ポップアップが消えるまで待機
-                popup.wait_for(state="hidden", timeout=5000)
+                    # 方法2: オーバーレイ背景をクリック
+                    print("    まだポップアップが存在、背景クリックを試行")
+                    self.page.mouse.click(10, 10)
+                    self.page.wait_for_timeout(500)
             else:
-                self.page.keyboard.press("Escape")
+                print("    ポップアップは既に閉じています")
 
-            self.page.wait_for_timeout(500)
+            self.page.wait_for_timeout(300)
         except Exception as e:
             print(f"    ポップアップを閉じる際のエラー: {e}")
-            # 強制的にEscapeキーを複数回押す
-            self.page.keyboard.press("Escape")
-            self.page.wait_for_timeout(300)
-            self.page.keyboard.press("Escape")
+            # フォールバック: JavaScriptで強制削除
+            try:
+                self.page.evaluate("document.getElementById('organization_users_id')?.remove()")
+                print("    フォールバック: JavaScriptで削除")
+            except:
+                pass
             self.page.wait_for_timeout(500)
 
 
