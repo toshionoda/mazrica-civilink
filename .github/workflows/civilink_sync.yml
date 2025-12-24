@@ -9,6 +9,7 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # 最大10分でタイムアウト
 
     steps:
       - name: Checkout repository
