@@ -150,7 +150,8 @@ class CivilinkScraper:
         print(f"text=未登録: {self.page.locator('text=未登録').count()}")
         print(f"text=株式会社: {self.page.locator('text=株式会社').count()}")
         print(f"text=招待中: {self.page.locator('text=招待中').count()}")
-        print(f"button with ...: {self.page.locator('button:has-text(\"...\")').count()}")
+        dots_selector = 'button:has-text("...")'
+        print(f"button with ...: {self.page.locator(dots_selector).count()}")
 
     def get_organizations_and_users(self) -> list[dict]:
         """組織とユーザー情報を取得"""
