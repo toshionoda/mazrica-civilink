@@ -137,9 +137,20 @@ class CivilinkScraper:
         self.page.screenshot(path="debug_accounts_page.png")
         print("スクリーンショット保存: debug_accounts_page.png")
 
-        # デバッグ: ページのHTML構造を出力（先頭2000文字）
+        # デバッグ: ページのHTML構造を出力
         html_content = self.page.content()
-        print(f"ページHTML（先頭2000文字）:\n{html_content[:2000]}")
+        print(f"ページHTML（先頭3000文字）:\n{html_content[:3000]}")
+
+        # デバッグ: 各種セレクタで要素数を確認
+        print("\n=== セレクタ検証 ===")
+        print(f"table: {self.page.locator('table').count()}")
+        print(f"tr: {self.page.locator('tr').count()}")
+        print(f"div with role=row: {self.page.locator('[role=row]').count()}")
+        print(f"div with role=grid: {self.page.locator('[role=grid]').count()}")
+        print(f"text=未登録: {self.page.locator('text=未登録').count()}")
+        print(f"text=株式会社: {self.page.locator('text=株式会社').count()}")
+        print(f"text=招待中: {self.page.locator('text=招待中').count()}")
+        print(f"button with ...: {self.page.locator('button:has-text(\"...\")').count()}")
 
     def get_organizations_and_users(self) -> list[dict]:
         """組織とユーザー情報を取得"""
