@@ -154,28 +154,32 @@ class CivilinkScraper:
         print(f"button with ...: {self.page.locator(dots_selector).count()}")
 
     def get_organizations_and_users(self) -> list[dict]:
-        """組織とユーザー情報を取得"""
+        """組織とユーザー情報を取得（ページリロード方式）"""
         results = []
 
-        # デバッグ: ページ内のtr要素数を確認
-        all_tr = self.page.locator("tr").all()
-        print(f"デバッグ: 全tr要素数: {len(all_tr)}")
-
-        # テーブルの行を取得（CSSのエスケープを回避）
+        # 最初に組織数を取得
         rows = self.page.locator("table tr").all()
-        print(f"組織数: {len(rows)}")
+        total_rows = len(rows)
+        print(f"組織数: {total_rows}")
 
-        for i, row in enumerate(rows):
+        # 各組織をインデックスで処理（リロード後も継続できるように）
+        i = 0
+        while i < total_rows:
             try:
+                # ページリロード後はテーブルを再取得
+                row = self.page.locator("table tr").nth(i)
+
                 # 招待中ラベルがあるかチェック（オレンジ色のバッジ）
                 invited_badge = row.locator("span.bg-orange-100")
                 if invited_badge.count() > 0:
                     print(f"  [{i+1}] スキップ: 招待中")
+                    i += 1
                     continue
 
                 # 組織情報を取得
                 cells = row.locator("td").all()
                 if len(cells) < 6:
+                    i += 1
                     continue
 
                 org_name = cells[0].inner_text().strip()
@@ -188,6 +192,7 @@ class CivilinkScraper:
                 # 組織名が空または"-"の場合はスキップ
                 if not org_name or org_name == "-" or org_name == "未登録":
                     print(f"  [{i+1}] スキップ: 組織名なし")
+                    i += 1
                     continue
 
                 print(f"  [{i+1}] 処理中: {org_name}")
@@ -204,34 +209,49 @@ class CivilinkScraper:
                 # 三点リーダーをクリック
                 menu_button = row.locator('button[data-slot="dropdown-menu-trigger"]').first
                 if menu_button.count() == 0:
-                    # 別のセレクタを試す
                     menu_button = row.locator('[aria-label="メニュー"], [data-testid="menu-button"]').first
 
                 if menu_button.count() > 0:
                     menu_button.click()
-                    self.page.wait_for_timeout(300)
+                    self.page.wait_for_timeout(500)
 
                     # 「組織ユーザー」メニューをクリック
                     user_menu = self.page.locator('text=組織ユーザー').first
                     if user_menu.count() > 0:
                         user_menu.click()
-                        self.page.wait_for_timeout(500)
+                        self.page.wait_for_timeout(1000)
 
-                        # ポップアップからユーザー情報を取得
-                        users = self._get_users_from_popup()
+                        # ポップアップが表示されるまで待機
+                        popup = self.page.locator('#organization_users_id')
+                        try:
+                            popup.wait_for(state="visible", timeout=5000)
 
-                        for user in users:
-                            results.append({
-                                **org_info,
-                                "user_email": user["email"],
-                                "user_name": user["name"],
-                                "role": user["role"],
-                            })
+                            # ポップアップからユーザー情報を取得
+                            users = self._get_users_from_popup()
+                            print(f"    ユーザー数: {len(users)}")
 
-                        # ポップアップを閉じる
-                        self._close_popup()
+                            for user in users:
+                                results.append({
+                                    **org_info,
+                                    "user_email": user["email"],
+                                    "user_name": user["name"],
+                                    "role": user["role"],
+                                })
+
+                            # ページをリロードしてSPA状態をリセット
+                            print(f"    ページリロード")
+                            self.page.reload()
+                            self.page.wait_for_load_state("load", timeout=30000)
+                            self.page.wait_for_selector("table tr", timeout=10000)
+                            self.page.wait_for_timeout(1000)
+
+                        except Exception as e:
+                            print(f"    ポップアップエラー: {e}")
+                            # エラー時もリロードして継続
+                            self.page.reload()
+                            self.page.wait_for_load_state("load", timeout=30000)
+                            self.page.wait_for_selector("table tr", timeout=10000)
                     else:
-                        # メニューを閉じる
                         self.page.keyboard.press("Escape")
                 else:
                     # ユーザー情報なしで登録
@@ -242,8 +262,18 @@ class CivilinkScraper:
                         "role": "",
                     })
 
+                i += 1
+
             except Exception as e:
                 print(f"  エラー: {e}")
+                # エラー時はリロードして継続
+                try:
+                    self.page.reload()
+                    self.page.wait_for_load_state("load", timeout=30000)
+                    self.page.wait_for_selector("table tr", timeout=10000)
+                except:
+                    pass
+                i += 1
                 continue
 
         return results
@@ -253,9 +283,11 @@ class CivilinkScraper:
         users = []
 
         try:
-            # ポップアップが表示されるまで待機
-            popup = self.page.locator('[role="dialog"], .modal, [data-testid="modal"]').first
-            popup.wait_for(timeout=5000)
+            # ポップアップを取得（#organization_users_id を使用）
+            popup = self.page.locator('#organization_users_id')
+            if popup.count() == 0:
+                print("    ポップアップが見つかりません")
+                return users
 
             # ユーザー行を取得（ポップアップ内のテーブルまたはリスト）
             user_rows = popup.locator("table tbody tr, .user-row, [data-testid='user-row']").all()
