@@ -383,7 +383,12 @@ class CivilinkScraper:
         return users
 
     def _read_toggle_state(self, dialog, label_text: str) -> str:
-        """ダイアログ内のトグル状態を読み取る（JavaScript で DOM を直接検索）
+        """ダイアログ内のRadioGroupトグル状態を読み取る（JavaScript で DOM を直接検索）
+
+        Radix UI RadioGroup パターン:
+        - ラジオボタン(button[role=radio])は非表示(hidden)でテキストが空
+        - 各ラジオの隣にラベル要素("非表示"/"表示")がある
+        - data-state="checked" のラジオに対応するラベルテキストを返す
 
         Args:
             dialog: ダイアログのLocator
@@ -408,78 +413,82 @@ class CivilinkScraper:
                 }
                 if (!labelEl) return { error: 'label not found' };
 
-                // 親要素を最大6レベル遡ってボタンを含むコンテナを検索
+                // 親要素を最大6レベル遡ってラジオボタンを含むコンテナを検索
                 let container = labelEl.parentElement;
-                let buttons = [];
+                let radioButtons = [];
                 for (let i = 0; i < 6; i++) {
                     if (!container) break;
-                    const btns = container.querySelectorAll('button');
-                    if (btns.length >= 2) {
-                        buttons = Array.from(btns);
+                    const radios = container.querySelectorAll('button[role="radio"], button[data-state]');
+                    if (radios.length >= 2) {
+                        radioButtons = Array.from(radios);
                         break;
                     }
                     container = container.parentElement;
                 }
 
-                if (buttons.length < 2) return { error: 'buttons not found' };
+                if (radioButtons.length < 2) return { error: 'radio buttons not found' };
 
-                // 各ボタンの属性と計算済みスタイルを収集
-                const buttonInfos = buttons.map(btn => {
-                    const style = window.getComputedStyle(btn);
+                // 各ラジオボタンの情報を収集（隣接ラベルテキストも取得）
+                const radioInfos = radioButtons.map(radio => {
+                    // ラジオボタンの隣のラベルテキストを取得
+                    // パターン1: 次の兄弟要素がラベル
+                    let associatedText = '';
+                    const nextSibling = radio.nextElementSibling;
+                    if (nextSibling) {
+                        associatedText = nextSibling.textContent.trim();
+                    }
+                    // パターン2: 親要素内のラベル（ラジオ以外のテキスト）
+                    if (!associatedText) {
+                        const parent = radio.parentElement;
+                        if (parent) {
+                            for (const child of parent.children) {
+                                if (child !== radio && child.textContent.trim()) {
+                                    associatedText = child.textContent.trim();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    // パターン3: for属性でリンクされたラベル
+                    if (!associatedText && radio.id) {
+                        const linkedLabel = dialog.querySelector('label[for="' + radio.id + '"]');
+                        if (linkedLabel) associatedText = linkedLabel.textContent.trim();
+                    }
+
                     return {
-                        text: btn.textContent.trim(),
-                        dataState: btn.getAttribute('data-state'),
-                        ariaPressed: btn.getAttribute('aria-pressed'),
-                        ariaChecked: btn.getAttribute('aria-checked'),
-                        bgColor: style.backgroundColor,
-                        color: style.color,
-                        className: btn.className,
+                        associatedText: associatedText,
+                        dataState: radio.getAttribute('data-state'),
+                        ariaChecked: radio.getAttribute('aria-checked'),
+                        value: radio.getAttribute('value'),
                     };
                 });
 
-                return { buttons: buttonInfos };
+                return { radios: radioInfos };
             }""", label_text)
 
             if "error" in result:
                 print(f"    トグル検索エラー ({label_text}): {result['error']}")
                 return "---"
 
-            buttons = result.get("buttons", [])
-            print(f"    '{label_text}' ボタン情報: {buttons}")
+            radios = result.get("radios", [])
+            print(f"    '{label_text}' ラジオ情報: {radios}")
 
-            # 戦略1: data-state 属性（Radix UI パターン）
-            for btn in buttons:
-                if btn.get("dataState") in ("on", "active", "checked"):
-                    return "表示" if btn["text"] == "表示" else "---"
+            # checked 状態のラジオボタンに対応するラベルテキストを確認
+            for radio in radios:
+                is_checked = (
+                    radio.get("dataState") == "checked"
+                    or radio.get("ariaChecked") == "true"
+                )
+                if is_checked:
+                    label = radio.get("associatedText", "")
+                    value = radio.get("value", "")
+                    # ラベルテキストまたはvalue属性で判定
+                    if label == "表示" or value == "表示" or value == "show":
+                        return "表示"
+                    else:
+                        return "---"
 
-            # 戦略2: aria-pressed 属性
-            for btn in buttons:
-                if btn.get("ariaPressed") == "true":
-                    return "表示" if btn["text"] == "表示" else "---"
-
-            # 戦略3: aria-checked 属性
-            for btn in buttons:
-                if btn.get("ariaChecked") == "true":
-                    return "表示" if btn["text"] == "表示" else "---"
-
-            # 戦略4: CSSクラスで判定
-            for btn in buttons:
-                cls = btn.get("className", "")
-                if any(k in cls for k in ["bg-blue", "bg-primary", "active", "selected", "checked"]):
-                    return "表示" if btn["text"] == "表示" else "---"
-
-            # 戦略5: 計算済み背景色で判定（色が異なるボタンがアクティブ）
-            if len(buttons) >= 2:
-                bg_colors = [btn.get("bgColor", "") for btn in buttons]
-                if bg_colors[0] != bg_colors[1]:
-                    for btn in buttons:
-                        bg = btn.get("bgColor", "")
-                        # 透明/白以外の背景色を持つボタンがアクティブ
-                        if bg and bg not in ("rgba(0, 0, 0, 0)", "rgb(255, 255, 255)", "transparent"):
-                            return "表示" if btn["text"] == "表示" else "---"
-
-            # 判定できない場合
-            print(f"    '{label_text}' のアクティブボタンを判定できません")
+            print(f"    '{label_text}' のcheckedラジオが見つかりません")
             return "---"
 
         except Exception as e:
@@ -518,11 +527,13 @@ class CivilinkScraper:
             return defaults
 
     def _close_edit_popup(self):
-        """編集ポップアップを閉じる"""
+        """編集ポップアップとオーバーレイを閉じる"""
         try:
             dialog = self.page.locator('[role="dialog"]')
             if dialog.count() == 0:
                 print("    編集ポップアップは既に閉じています")
+                # オーバーレイだけ残っている場合も削除
+                self._remove_overlay()
                 return
 
             # 方法1: × ボタンをクリック
@@ -532,6 +543,7 @@ class CivilinkScraper:
                 self.page.wait_for_timeout(500)
                 if dialog.count() == 0:
                     print("    ×ボタンで編集ポップアップを閉じました")
+                    self._remove_overlay()
                     return
 
             # 方法2: Escape キー
@@ -539,12 +551,14 @@ class CivilinkScraper:
             self.page.wait_for_timeout(500)
             if dialog.count() == 0:
                 print("    Escapeキーで編集ポップアップを閉じました")
+                self._remove_overlay()
                 return
 
             # 方法3: JavaScript で強制削除
             self.page.evaluate("document.querySelector('[role=\"dialog\"]')?.closest('[data-state]')?.remove() || document.querySelector('[role=\"dialog\"]')?.remove()")
             self.page.wait_for_timeout(300)
             print("    JavaScriptで編集ポップアップを削除しました")
+            self._remove_overlay()
 
         except Exception as e:
             print(f"    編集ポップアップを閉じる際のエラー: {e}")
@@ -553,7 +567,22 @@ class CivilinkScraper:
                 print("    フォールバック: JavaScriptで削除")
             except:
                 pass
+            self._remove_overlay()
             self.page.wait_for_timeout(500)
+
+    def _remove_overlay(self):
+        """ダイアログのオーバーレイ（背景）を削除する"""
+        try:
+            self.page.evaluate("""() => {
+                // account_model_id オーバーレイを削除
+                document.getElementById('account_model_id')?.remove();
+                // その他のオーバーレイも削除
+                document.querySelectorAll('.fixed.inset-0.z-300, [data-radix-portal]').forEach(el => el.remove());
+            }""")
+            self.page.wait_for_timeout(300)
+            print("    オーバーレイを削除しました")
+        except Exception as e:
+            print(f"    オーバーレイ削除エラー: {e}")
 
     def _close_popup(self):
         """ポップアップを閉じる"""
