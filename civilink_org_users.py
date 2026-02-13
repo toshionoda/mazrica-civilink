@@ -383,7 +383,7 @@ class CivilinkScraper:
         return users
 
     def _read_toggle_state(self, dialog, label_text: str) -> str:
-        """ダイアログ内のトグル状態を読み取る
+        """ダイアログ内のトグル状態を読み取る（JavaScript で DOM を直接検索）
 
         Args:
             dialog: ダイアログのLocator
@@ -393,56 +393,93 @@ class CivilinkScraper:
             "表示" or "---"
         """
         try:
-            # ラベルテキストを含む要素を検索
-            label = dialog.locator(f"text={label_text}").first
-            if label.count() == 0:
-                print(f"    ラベル '{label_text}' が見つかりません")
-                return "---"
+            result = self.page.evaluate("""(labelText) => {
+                const dialog = document.querySelector('[role="dialog"]');
+                if (!dialog) return { error: 'dialog not found' };
 
-            # ラベルの親要素からボタンを取得
-            parent = label.locator("..").first
-            buttons = parent.locator("button").all()
-
-            if not buttons:
-                # さらに上の親を試す
-                parent = parent.locator("..").first
-                buttons = parent.locator("button").all()
-
-            if not buttons:
-                print(f"    '{label_text}' のボタンが見つかりません")
-                return "---"
-
-            # アクティブなボタンを判定
-            for button in buttons:
-                # 戦略1: data-state 属性（Radix UI パターン）
-                data_state = button.get_attribute("data-state")
-                if data_state in ("on", "active"):
-                    text = button.inner_text().strip()
-                    return "表示" if text == "表示" else "---"
-
-                # 戦略2: aria-pressed 属性
-                aria_pressed = button.get_attribute("aria-pressed")
-                if aria_pressed == "true":
-                    text = button.inner_text().strip()
-                    return "表示" if text == "表示" else "---"
-
-            # 戦略3: CSSクラスで判定（bg-blue等）
-            for button in buttons:
-                class_attr = button.get_attribute("class") or ""
-                if "bg-blue" in class_attr or "bg-primary" in class_attr or "active" in class_attr:
-                    text = button.inner_text().strip()
-                    return "表示" if text == "表示" else "---"
-
-            # 判定できない場合はデバッグ情報を出力
-            print(f"    '{label_text}' のアクティブボタンを判定できません:")
-            for idx, button in enumerate(buttons):
-                attrs = {
-                    "text": button.inner_text().strip(),
-                    "data-state": button.get_attribute("data-state"),
-                    "aria-pressed": button.get_attribute("aria-pressed"),
-                    "class": button.get_attribute("class"),
+                // ラベルテキストに一致する要素を検索
+                const allElements = dialog.querySelectorAll('*');
+                let labelEl = null;
+                for (const el of allElements) {
+                    if (el.textContent.trim() === labelText && el.children.length === 0) {
+                        labelEl = el;
+                        break;
+                    }
                 }
-                print(f"      ボタン{idx}: {attrs}")
+                if (!labelEl) return { error: 'label not found' };
+
+                // 親要素を最大6レベル遡ってボタンを含むコンテナを検索
+                let container = labelEl.parentElement;
+                let buttons = [];
+                for (let i = 0; i < 6; i++) {
+                    if (!container) break;
+                    const btns = container.querySelectorAll('button');
+                    if (btns.length >= 2) {
+                        buttons = Array.from(btns);
+                        break;
+                    }
+                    container = container.parentElement;
+                }
+
+                if (buttons.length < 2) return { error: 'buttons not found' };
+
+                // 各ボタンの属性と計算済みスタイルを収集
+                const buttonInfos = buttons.map(btn => {
+                    const style = window.getComputedStyle(btn);
+                    return {
+                        text: btn.textContent.trim(),
+                        dataState: btn.getAttribute('data-state'),
+                        ariaPressed: btn.getAttribute('aria-pressed'),
+                        ariaChecked: btn.getAttribute('aria-checked'),
+                        bgColor: style.backgroundColor,
+                        color: style.color,
+                        className: btn.className,
+                    };
+                });
+
+                return { buttons: buttonInfos };
+            }""", label_text)
+
+            if "error" in result:
+                print(f"    トグル検索エラー ({label_text}): {result['error']}")
+                return "---"
+
+            buttons = result.get("buttons", [])
+            print(f"    '{label_text}' ボタン情報: {buttons}")
+
+            # 戦略1: data-state 属性（Radix UI パターン）
+            for btn in buttons:
+                if btn.get("dataState") in ("on", "active", "checked"):
+                    return "表示" if btn["text"] == "表示" else "---"
+
+            # 戦略2: aria-pressed 属性
+            for btn in buttons:
+                if btn.get("ariaPressed") == "true":
+                    return "表示" if btn["text"] == "表示" else "---"
+
+            # 戦略3: aria-checked 属性
+            for btn in buttons:
+                if btn.get("ariaChecked") == "true":
+                    return "表示" if btn["text"] == "表示" else "---"
+
+            # 戦略4: CSSクラスで判定
+            for btn in buttons:
+                cls = btn.get("className", "")
+                if any(k in cls for k in ["bg-blue", "bg-primary", "active", "selected", "checked"]):
+                    return "表示" if btn["text"] == "表示" else "---"
+
+            # 戦略5: 計算済み背景色で判定（色が異なるボタンがアクティブ）
+            if len(buttons) >= 2:
+                bg_colors = [btn.get("bgColor", "") for btn in buttons]
+                if bg_colors[0] != bg_colors[1]:
+                    for btn in buttons:
+                        bg = btn.get("bgColor", "")
+                        # 透明/白以外の背景色を持つボタンがアクティブ
+                        if bg and bg not in ("rgba(0, 0, 0, 0)", "rgb(255, 255, 255)", "transparent"):
+                            return "表示" if btn["text"] == "表示" else "---"
+
+            # 判定できない場合
+            print(f"    '{label_text}' のアクティブボタンを判定できません")
             return "---"
 
         except Exception as e:
