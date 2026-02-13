@@ -206,6 +206,10 @@ class CivilinkScraper:
                     "created_at": created_at if created_at != "-" else "",
                 }
 
+                # トグル状態の初期値
+                bulletin_board = "---"
+                rebar_ai = "---"
+
                 # 三点リーダーをクリック
                 menu_button = row.locator('button[data-slot="dropdown-menu-trigger"]').first
                 if menu_button.count() == 0:
@@ -214,6 +218,45 @@ class CivilinkScraper:
                 if menu_button.count() > 0:
                     menu_button.click()
                     self.page.wait_for_timeout(500)
+
+                    # 「編集」メニューをクリックしてトグル状態を取得
+                    edit_menu = self.page.locator('text=編集').first
+                    if edit_menu.count() > 0:
+                        try:
+                            edit_menu.click()
+                            self.page.wait_for_timeout(1000)
+
+                            toggles = self._get_edit_popup_toggles()
+                            bulletin_board = toggles["bulletin_board"]
+                            rebar_ai = toggles["rebar_ai"]
+
+                            self._close_edit_popup()
+                            self.page.wait_for_timeout(500)
+                        except Exception as e:
+                            print(f"    編集ポップアップ処理エラー: {e}")
+                            # エラー時はポップアップを閉じる試行
+                            try:
+                                self._close_edit_popup()
+                            except:
+                                pass
+
+                        # メニューを再度開く
+                        row = self.page.locator("table tr").nth(i)
+                        menu_button = row.locator('button[data-slot="dropdown-menu-trigger"]').first
+                        if menu_button.count() == 0:
+                            menu_button = row.locator('[aria-label="メニュー"], [data-testid="menu-button"]').first
+                        menu_button.click()
+                        self.page.wait_for_timeout(500)
+                    else:
+                        print("    「編集」メニュー項目が見つかりません、スキップ")
+                        # メニューを閉じて再度開く
+                        self.page.keyboard.press("Escape")
+                        self.page.wait_for_timeout(300)
+                        menu_button = row.locator('button[data-slot="dropdown-menu-trigger"]').first
+                        if menu_button.count() == 0:
+                            menu_button = row.locator('[aria-label="メニュー"], [data-testid="menu-button"]').first
+                        menu_button.click()
+                        self.page.wait_for_timeout(500)
 
                     # 「組織ユーザー」メニューをクリック
                     user_menu = self.page.locator('text=組織ユーザー').first
@@ -236,6 +279,8 @@ class CivilinkScraper:
                                     "user_email": user["email"],
                                     "user_name": user["name"],
                                     "role": user["role"],
+                                    "bulletin_board": bulletin_board,
+                                    "rebar_ai": rebar_ai,
                                 })
 
                             # ページをリロードしてSPA状態をリセット
@@ -260,6 +305,8 @@ class CivilinkScraper:
                         "user_email": "",
                         "user_name": "",
                         "role": "",
+                        "bulletin_board": bulletin_board,
+                        "rebar_ai": rebar_ai,
                     })
 
                 i += 1
@@ -334,6 +381,142 @@ class CivilinkScraper:
 
         print(f"    ユーザー数: {len(users)}")
         return users
+
+    def _read_toggle_state(self, dialog, label_text: str) -> str:
+        """ダイアログ内のトグル状態を読み取る
+
+        Args:
+            dialog: ダイアログのLocator
+            label_text: トグルのラベルテキスト（例: "掲示板スレッド"）
+
+        Returns:
+            "表示" or "---"
+        """
+        try:
+            # ラベルテキストを含む要素を検索
+            label = dialog.locator(f"text={label_text}").first
+            if label.count() == 0:
+                print(f"    ラベル '{label_text}' が見つかりません")
+                return "---"
+
+            # ラベルの親要素からボタンを取得
+            parent = label.locator("..").first
+            buttons = parent.locator("button").all()
+
+            if not buttons:
+                # さらに上の親を試す
+                parent = parent.locator("..").first
+                buttons = parent.locator("button").all()
+
+            if not buttons:
+                print(f"    '{label_text}' のボタンが見つかりません")
+                return "---"
+
+            # アクティブなボタンを判定
+            for button in buttons:
+                # 戦略1: data-state 属性（Radix UI パターン）
+                data_state = button.get_attribute("data-state")
+                if data_state in ("on", "active"):
+                    text = button.inner_text().strip()
+                    return "表示" if text == "表示" else "---"
+
+                # 戦略2: aria-pressed 属性
+                aria_pressed = button.get_attribute("aria-pressed")
+                if aria_pressed == "true":
+                    text = button.inner_text().strip()
+                    return "表示" if text == "表示" else "---"
+
+            # 戦略3: CSSクラスで判定（bg-blue等）
+            for button in buttons:
+                class_attr = button.get_attribute("class") or ""
+                if "bg-blue" in class_attr or "bg-primary" in class_attr or "active" in class_attr:
+                    text = button.inner_text().strip()
+                    return "表示" if text == "表示" else "---"
+
+            # 判定できない場合はデバッグ情報を出力
+            print(f"    '{label_text}' のアクティブボタンを判定できません:")
+            for idx, button in enumerate(buttons):
+                attrs = {
+                    "text": button.inner_text().strip(),
+                    "data-state": button.get_attribute("data-state"),
+                    "aria-pressed": button.get_attribute("aria-pressed"),
+                    "class": button.get_attribute("class"),
+                }
+                print(f"      ボタン{idx}: {attrs}")
+            return "---"
+
+        except Exception as e:
+            print(f"    トグル状態読み取りエラー ({label_text}): {e}")
+            return "---"
+
+    def _get_edit_popup_toggles(self) -> dict:
+        """編集ポップアップからトグル状態を取得
+
+        Returns:
+            {"bulletin_board": "---"/"表示", "rebar_ai": "---"/"表示"}
+        """
+        defaults = {"bulletin_board": "---", "rebar_ai": "---"}
+        try:
+            # ダイアログが表示されるまで待機
+            dialog = self.page.locator('[role="dialog"]').first
+            dialog.wait_for(state="visible", timeout=5000)
+            self.page.wait_for_timeout(500)
+
+            # デバッグ用スクリーンショット
+            self.page.screenshot(path="debug_edit_popup.png")
+            print("    スクリーンショット保存: debug_edit_popup.png")
+
+            # トグル状態を読み取り
+            bulletin_board = self._read_toggle_state(dialog, "掲示板スレッド")
+            rebar_ai = self._read_toggle_state(dialog, "鉄筋照査AI")
+
+            print(f"    掲示板スレッド: {bulletin_board}, 鉄筋照査AI: {rebar_ai}")
+            return {"bulletin_board": bulletin_board, "rebar_ai": rebar_ai}
+
+        except PlaywrightTimeoutError:
+            print("    編集ポップアップが表示されませんでした")
+            return defaults
+        except Exception as e:
+            print(f"    編集ポップアップ読み取りエラー: {e}")
+            return defaults
+
+    def _close_edit_popup(self):
+        """編集ポップアップを閉じる"""
+        try:
+            dialog = self.page.locator('[role="dialog"]')
+            if dialog.count() == 0:
+                print("    編集ポップアップは既に閉じています")
+                return
+
+            # 方法1: × ボタンをクリック
+            close_button = dialog.locator('button:has-text("×"), button[aria-label="Close"], button[aria-label="閉じる"]').first
+            if close_button.count() > 0:
+                close_button.click()
+                self.page.wait_for_timeout(500)
+                if dialog.count() == 0:
+                    print("    ×ボタンで編集ポップアップを閉じました")
+                    return
+
+            # 方法2: Escape キー
+            self.page.keyboard.press("Escape")
+            self.page.wait_for_timeout(500)
+            if dialog.count() == 0:
+                print("    Escapeキーで編集ポップアップを閉じました")
+                return
+
+            # 方法3: JavaScript で強制削除
+            self.page.evaluate("document.querySelector('[role=\"dialog\"]')?.closest('[data-state]')?.remove() || document.querySelector('[role=\"dialog\"]')?.remove()")
+            self.page.wait_for_timeout(300)
+            print("    JavaScriptで編集ポップアップを削除しました")
+
+        except Exception as e:
+            print(f"    編集ポップアップを閉じる際のエラー: {e}")
+            try:
+                self.page.evaluate("document.querySelector('[role=\"dialog\"]')?.closest('[data-state]')?.remove() || document.querySelector('[role=\"dialog\"]')?.remove()")
+                print("    フォールバック: JavaScriptで削除")
+            except:
+                pass
+            self.page.wait_for_timeout(500)
 
     def _close_popup(self):
         """ポップアップを閉じる"""
@@ -426,7 +609,7 @@ def main():
         headers = [
             "組織名", "部署名", "契約者名", "組織メールアドレス",
             "電話番号", "アカウント作成日", "ユーザーメールアドレス",
-            "ユーザー名", "権限"
+            "ユーザー名", "権限", "掲示板スレッド", "鉄筋照査AI"
         ]
 
         # データ行
@@ -442,6 +625,8 @@ def main():
                 item["user_email"],
                 item["user_name"],
                 item["role"],
+                item["bulletin_board"],
+                item["rebar_ai"],
             ])
 
         sheet_name = "Civilink_ユーザー"
