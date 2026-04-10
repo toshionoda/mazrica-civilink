@@ -519,7 +519,7 @@ class CivilinkScraper:
             checkbox = locator.locator('input[type="checkbox"]').first
             if checkbox.count() > 0:
                 is_checked = checkbox.is_checked()
-                return "ON" if is_checked else "OFF"
+                return "表示" if is_checked else "---"
 
             # パターン2: Radix UI Switch（フォールバック）
             toggle = locator.locator('button[role="switch"]').first
@@ -527,9 +527,9 @@ class CivilinkScraper:
                 data_state = toggle.get_attribute("data-state")
                 aria_checked = toggle.get_attribute("aria-checked")
                 if data_state == "checked" or aria_checked == "true":
-                    return "ON"
+                    return "表示"
                 else:
-                    return "OFF"
+                    return "---"
 
             return "---"
         except Exception:
