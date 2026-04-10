@@ -153,9 +153,115 @@ class CivilinkScraper:
         dots_selector = 'button:has-text("...")'
         print(f"button with ...: {self.page.locator(dots_selector).count()}")
 
+    def _scroll_to_render_all_rows(self, verbose: bool = True):
+        """仮想スクロールテーブルの全行をレンダリングさせる
+
+        管理画面が仮想スクロールを使用している場合、ビューポート外の行は
+        td セルが空になる。テーブル末尾までスクロールして全行をレンダリングさせる。
+        """
+        try:
+            # スクロールコンテナを特定し、段階的にスクロールして全行をレンダリング
+            info = self.page.evaluate("""() => {
+                const table = document.querySelector('table');
+                if (!table) return { error: 'table not found' };
+
+                // テーブルを含むスクロール可能な親要素を探す
+                let sc = table.parentElement;
+                while (sc && sc !== document.body) {
+                    const style = window.getComputedStyle(sc);
+                    if (style.overflow === 'auto' || style.overflow === 'scroll' ||
+                        style.overflowY === 'auto' || style.overflowY === 'scroll') {
+                        break;
+                    }
+                    sc = sc.parentElement;
+                }
+                if (!sc || sc === document.body) sc = document.documentElement;
+
+                // 段階的にスクロール（200px刻み）
+                const scrollHeight = sc.scrollHeight;
+                const clientHeight = sc.clientHeight || 800;
+                const step = clientHeight;
+                let pos = 0;
+                const scrollSteps = [];
+                while (pos < scrollHeight) {
+                    pos += step;
+                    sc.scrollTop = pos;
+                    scrollSteps.push(pos);
+                }
+
+                // トップに戻す
+                sc.scrollTop = 0;
+
+                // レンダリング結果を確認
+                const rows = document.querySelectorAll('table tr');
+                let withCells = 0;
+                for (const row of rows) {
+                    if (row.querySelectorAll('td').length >= 6) withCells++;
+                }
+
+                return {
+                    total: rows.length,
+                    withCells: withCells,
+                    withoutCells: rows.length - withCells,
+                    scrollSteps: scrollSteps.length,
+                };
+            }""")
+
+            if 'error' in info:
+                if verbose:
+                    print(f"    スクロール: {info['error']}")
+                return
+
+            # JS内の同期スクロールでは仮想スクロールがトリガーされない場合がある
+            # Playwright経由で段階的にスクロールする
+            if info['withoutCells'] > 5:
+                scroll_result = self.page.evaluate("""() => {
+                    const table = document.querySelector('table');
+                    let sc = table.parentElement;
+                    while (sc && sc !== document.body) {
+                        const style = window.getComputedStyle(sc);
+                        if (style.overflow === 'auto' || style.overflow === 'scroll' ||
+                            style.overflowY === 'auto' || style.overflowY === 'scroll') break;
+                        sc = sc.parentElement;
+                    }
+                    if (!sc || sc === document.body) sc = document.documentElement;
+                    return { scrollHeight: sc.scrollHeight, clientHeight: sc.clientHeight || 800 };
+                }""")
+
+                step = scroll_result['clientHeight']
+                pos = 0
+                while pos < scroll_result['scrollHeight']:
+                    pos += step
+                    self.page.evaluate(f"document.querySelector('table')?.closest('[style*=\"overflow\"]')?.scrollTop = {pos}; document.documentElement.scrollTop = {pos};")
+                    self.page.wait_for_timeout(150)
+
+                self.page.wait_for_timeout(500)
+                self.page.evaluate("document.querySelector('table')?.closest('[style*=\"overflow\"]')?.scrollTop = 0; document.documentElement.scrollTop = 0;")
+                self.page.wait_for_timeout(300)
+
+                # 再度チェック
+                info = self.page.evaluate("""() => {
+                    const rows = document.querySelectorAll('table tr');
+                    let withCells = 0;
+                    for (const row of rows) {
+                        if (row.querySelectorAll('td').length >= 6) withCells++;
+                    }
+                    return { total: rows.length, withCells: withCells, withoutCells: rows.length - withCells };
+                }""")
+
+            if verbose:
+                print(f"    テーブル行状態: 全{info['total']}行, セルあり={info['withCells']}, セルなし={info['withoutCells']}")
+
+        except Exception as e:
+            if verbose:
+                print(f"    スクロール処理エラー（続行）: {e}")
+
     def get_organizations_and_users(self) -> list[dict]:
         """組織とユーザー情報を取得（ページリロード方式）"""
         results = []
+
+        # 仮想スクロール対策: 全行をレンダリングさせる
+        self._scroll_to_render_all_rows()
 
         # 最初に組織数を取得
         rows = self.page.locator("table tr").all()
@@ -164,6 +270,7 @@ class CivilinkScraper:
 
         # 各組織をインデックスで処理（リロード後も継続できるように）
         i = 0
+        skipped_no_cells = 0
         while i < total_rows:
             try:
                 # ページリロード後はテーブルを再取得
@@ -179,6 +286,11 @@ class CivilinkScraper:
                 # 組織情報を取得
                 cells = row.locator("td").all()
                 if len(cells) < 6:
+                    skipped_no_cells += 1
+                    if skipped_no_cells <= 5:
+                        print(f"  [{i+1}] スキップ: セル不足 ({len(cells)}個)")
+                    elif skipped_no_cells == 6:
+                        print(f"  ... 以降のセル不足スキップはログ省略")
                     i += 1
                     continue
 
@@ -208,7 +320,6 @@ class CivilinkScraper:
 
                 # トグル状態の初期値
                 bulletin_board = "---"
-                rebar_ai = "---"
 
                 # 三点リーダーをクリック
                 menu_button = row.locator('button[data-slot="dropdown-menu-trigger"]').first
@@ -228,7 +339,6 @@ class CivilinkScraper:
 
                             toggles = self._get_edit_popup_toggles()
                             bulletin_board = toggles["bulletin_board"]
-                            rebar_ai = toggles["rebar_ai"]
 
                             self._close_edit_popup()
                             self.page.wait_for_timeout(500)
@@ -280,22 +390,17 @@ class CivilinkScraper:
                                     "user_name": user["name"],
                                     "role": user["role"],
                                     "bulletin_board": bulletin_board,
-                                    "rebar_ai": rebar_ai,
+                                    "rebar_ai": user.get("rebar_ai", "---"),
                                 })
 
                             # ページをリロードしてSPA状態をリセット
                             print(f"    ページリロード")
-                            self.page.reload()
-                            self.page.wait_for_load_state("load", timeout=30000)
-                            self.page.wait_for_selector("table tr", timeout=10000)
-                            self.page.wait_for_timeout(1000)
+                            self._reload_and_prepare_table()
 
                         except Exception as e:
                             print(f"    ポップアップエラー: {e}")
                             # エラー時もリロードして継続
-                            self.page.reload()
-                            self.page.wait_for_load_state("load", timeout=30000)
-                            self.page.wait_for_selector("table tr", timeout=10000)
+                            self._reload_and_prepare_table()
                     else:
                         self.page.keyboard.press("Escape")
                 else:
@@ -306,7 +411,7 @@ class CivilinkScraper:
                         "user_name": "",
                         "role": "",
                         "bulletin_board": bulletin_board,
-                        "rebar_ai": rebar_ai,
+                        "rebar_ai": "---",
                     })
 
                 i += 1
@@ -315,15 +420,24 @@ class CivilinkScraper:
                 print(f"  エラー: {e}")
                 # エラー時はリロードして継続
                 try:
-                    self.page.reload()
-                    self.page.wait_for_load_state("load", timeout=30000)
-                    self.page.wait_for_selector("table tr", timeout=10000)
+                    self._reload_and_prepare_table()
                 except:
                     pass
                 i += 1
                 continue
 
+        if skipped_no_cells > 0:
+            print(f"  セル不足でスキップした行数: {skipped_no_cells}")
+
         return results
+
+    def _reload_and_prepare_table(self):
+        """ページをリロードし、仮想スクロール対策を実施"""
+        self.page.reload()
+        self.page.wait_for_load_state("load", timeout=30000)
+        self.page.wait_for_selector("table tr", timeout=10000)
+        self.page.wait_for_timeout(1000)
+        self._scroll_to_render_all_rows(verbose=False)
 
     def _get_users_from_popup(self) -> list[dict]:
         """ポップアップからユーザー一覧を取得"""
@@ -354,24 +468,35 @@ class CivilinkScraper:
                         name = lines[1] if len(lines) > 1 else ""
                         role = lines[2] if len(lines) > 2 else ""
 
+                        # 鉄筋照査AI トグル検出（親要素から探す）
+                        rebar_ai = self._read_switch_state(parent)
+
                         if email:
                             users.append({
                                 "email": email,
                                 "name": name,
                                 "role": role,
+                                "rebar_ai": rebar_ai,
                             })
             else:
-                for user_row in user_rows:
+                for idx, user_row in enumerate(user_rows):
                     cells = user_row.locator("td").all()
                     if len(cells) >= 2:
                         email = cells[0].inner_text().strip()
                         name = cells[1].inner_text().strip()
                         role = cells[2].inner_text().strip() if len(cells) > 2 else ""
 
+                        # 鉄筋照査AI トグル検出（行内のスイッチ要素を探す）
+                        rebar_ai = self._read_switch_state(user_row)
+
+                        if idx < 3:
+                            print(f"      ユーザー[{idx}]: email={email}, name={name}, role={role}, rebar_ai={rebar_ai}")
+
                         users.append({
                             "email": email,
                             "name": name,
                             "role": role,
+                            "rebar_ai": rebar_ai,
                         })
 
         except PlaywrightTimeoutError:
@@ -381,6 +506,29 @@ class CivilinkScraper:
 
         print(f"    ユーザー数: {len(users)}")
         return users
+
+    def _read_switch_state(self, locator) -> str:
+        """要素内のスイッチ（トグル）の状態を読み取る
+
+        Radix UI Switch パターン:
+        - button[role="switch"] に data-state="checked"/"unchecked" がある
+        - または aria-checked="true"/"false"
+
+        Returns:
+            "ON" / "OFF" / "---"（スイッチが見つからない場合）
+        """
+        try:
+            toggle = locator.locator('button[role="switch"]').first
+            if toggle.count() > 0:
+                data_state = toggle.get_attribute("data-state")
+                aria_checked = toggle.get_attribute("aria-checked")
+                if data_state == "checked" or aria_checked == "true":
+                    return "ON"
+                else:
+                    return "OFF"
+            return "---"
+        except Exception:
+            return "---"
 
     def _read_toggle_state(self, dialog, label_text: str) -> str:
         """ダイアログ内のRadioGroupトグル状態を読み取る（JavaScript で DOM を直接検索）
@@ -499,9 +647,9 @@ class CivilinkScraper:
         """編集ポップアップからトグル状態を取得
 
         Returns:
-            {"bulletin_board": "---"/"表示", "rebar_ai": "---"/"表示"}
+            {"bulletin_board": "---"/"表示"}
         """
-        defaults = {"bulletin_board": "---", "rebar_ai": "---"}
+        defaults = {"bulletin_board": "---"}
         try:
             # ダイアログが表示されるまで待機
             dialog = self.page.locator('[role="dialog"]').first
@@ -512,12 +660,11 @@ class CivilinkScraper:
             self.page.screenshot(path="debug_edit_popup.png")
             print("    スクリーンショット保存: debug_edit_popup.png")
 
-            # トグル状態を読み取り
+            # トグル状態を読み取り（鉄筋照査AIは編集ポップアップになく、ユーザー一覧の個別スイッチで取得）
             bulletin_board = self._read_toggle_state(dialog, "掲示板スレッド")
-            rebar_ai = self._read_toggle_state(dialog, "鉄筋照査AI")
 
-            print(f"    掲示板スレッド: {bulletin_board}, 鉄筋照査AI: {rebar_ai}")
-            return {"bulletin_board": bulletin_board, "rebar_ai": rebar_ai}
+            print(f"    掲示板スレッド: {bulletin_board}")
+            return {"bulletin_board": bulletin_board}
 
         except PlaywrightTimeoutError:
             print("    編集ポップアップが表示されませんでした")
