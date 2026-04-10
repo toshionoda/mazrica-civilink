@@ -517,14 +517,21 @@ class CivilinkScraper:
     def _read_switch_state(self, locator) -> str:
         """要素内のスイッチ（トグル）の状態を読み取る
 
-        Radix UI Switch パターン:
-        - button[role="switch"] に data-state="checked"/"unchecked" がある
-        - または aria-checked="true"/"false"
+        CiviLink管理画面のユーザー一覧では Tailwind CSS ベースのチェックボックストグルを使用:
+        - <input type="checkbox" checked=""> → ON
+        - <input type="checkbox"> → OFF
 
         Returns:
             "ON" / "OFF" / "---"（スイッチが見つからない場合）
         """
         try:
+            # パターン1: Tailwind CSS checkbox トグル
+            checkbox = locator.locator('input[type="checkbox"]').first
+            if checkbox.count() > 0:
+                is_checked = checkbox.is_checked()
+                return "ON" if is_checked else "OFF"
+
+            # パターン2: Radix UI Switch（フォールバック）
             toggle = locator.locator('button[role="switch"]').first
             if toggle.count() > 0:
                 data_state = toggle.get_attribute("data-state")
@@ -533,6 +540,7 @@ class CivilinkScraper:
                     return "ON"
                 else:
                     return "OFF"
+
             return "---"
         except Exception:
             return "---"
