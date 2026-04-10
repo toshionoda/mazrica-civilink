@@ -479,11 +479,6 @@ class CivilinkScraper:
                                 "rebar_ai": rebar_ai,
                             })
             else:
-                # デバッグ: 最初の行のHTML構造を確認（スイッチ要素の特定用）
-                if len(user_rows) > 0:
-                    first_row_html = user_rows[0].evaluate("el => el.innerHTML.substring(0, 1500)")
-                    print(f"    最初の行HTML: {first_row_html}")
-
                 for idx, user_row in enumerate(user_rows):
                     cells = user_row.locator("td").all()
                     if len(cells) >= 2:
@@ -493,11 +488,6 @@ class CivilinkScraper:
 
                         # 鉄筋照査AI トグル検出（行内のスイッチ要素を探す）
                         rebar_ai = self._read_switch_state(user_row)
-
-                        if idx < 3:
-                            switch_count = user_row.locator('button[role="switch"]').count()
-                            all_buttons = user_row.locator('button').count()
-                            print(f"      ユーザー[{idx}]: email={email}, name={name}, role={role}, rebar_ai={rebar_ai}, switch_count={switch_count}, buttons={all_buttons}, cells={len(cells)}")
 
                         users.append({
                             "email": email,
