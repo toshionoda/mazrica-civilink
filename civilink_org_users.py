@@ -480,6 +480,11 @@ class CivilinkScraper:
                             })
             else:
                 for idx, user_row in enumerate(user_rows):
+                    # 招待中ユーザーをスキップ
+                    row_text = user_row.inner_text()
+                    if "招待中" in row_text:
+                        continue
+
                     cells = user_row.locator("td").all()
                     if len(cells) >= 2:
                         email = cells[0].inner_text().strip()
