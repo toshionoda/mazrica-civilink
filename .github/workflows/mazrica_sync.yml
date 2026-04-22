@@ -1,12 +1,12 @@
 # Mazrica → Google Sheets 定期同期ワークフロー
-# 毎日 9:00 JST (0:00 UTC) に実行
+# 毎日 8:30 JST (23:30 UTC 前日) に実行
 
 name: Mazrica Sheets Sync
 
 on:
-  # 定期実行（毎日 0:00 UTC = 9:00 JST）
+  # 定期実行（毎日 23:30 UTC 前日 = 8:30 JST）
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '30 23 * * *'
   
   # 手動実行
   workflow_dispatch:
