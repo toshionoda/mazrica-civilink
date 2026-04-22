@@ -16,6 +16,17 @@ class Config:
     APPS_SCRIPT_URL: str = os.environ.get("APPS_SCRIPT_URL", "")
     APPS_SCRIPT_SECRET: str = os.environ.get("APPS_SCRIPT_SECRET", "")
     SHEET_NAME: str = os.environ.get("SHEET_NAME", "案件一覧_v2")
+
+    # 追加書き込み先のスプレッドシートID（カンマ区切りで複数指定可）
+    # 空の場合、Apps Scriptバインド先（active）のみに書き込む
+    ADDITIONAL_SPREADSHEET_IDS: str = os.environ.get("ADDITIONAL_SPREADSHEET_IDS", "")
+
+    @classmethod
+    def get_additional_spreadsheet_ids(cls) -> list[str]:
+        """追加スプレッドシートIDをリストで取得"""
+        if not cls.ADDITIONAL_SPREADSHEET_IDS:
+            return []
+        return [s.strip() for s in cls.ADDITIONAL_SPREADSHEET_IDS.split(",") if s.strip()]
     
     # 同期設定
     DEAL_TYPE_ID: Optional[int] = (

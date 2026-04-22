@@ -158,7 +158,12 @@ class GoogleSheetsClient:
         }
         return self._post(payload)
     
-    def get_existing_ids(self, sheet_name: str, id_column: int = 1) -> list:
+    def get_existing_ids(
+        self,
+        sheet_name: str,
+        id_column: int = 1,
+        spreadsheet_id: Optional[str] = None,
+    ) -> list:
         """
         既存の案件IDリストを取得
         
@@ -174,7 +179,9 @@ class GoogleSheetsClient:
             'sheet_name': sheet_name,
             'id_column': id_column
         }
-        
+        if spreadsheet_id:
+            payload['spreadsheet_id'] = spreadsheet_id
+
         result = self._post(payload)
         return result.get('ids', [])
     
@@ -184,7 +191,9 @@ class GoogleSheetsClient:
         headers: list[str],
         new_rows: list[list[Any]],
         delete_ids: list,
-        id_column: int = 1
+        id_column: int = 1,
+        spreadsheet_id: Optional[str] = None,
+        sync_customer_list: bool = True,
     ) -> dict:
         """
         差分同期を実行（新規追加・削除）
@@ -218,9 +227,12 @@ class GoogleSheetsClient:
             'headers': converted_headers,
             'new_rows': converted_rows,
             'delete_ids': converted_delete_ids,
-            'id_column': id_column
+            'id_column': id_column,
+            'sync_customer_list': sync_customer_list,
         }
-        
+        if spreadsheet_id:
+            payload['spreadsheet_id'] = spreadsheet_id
+
         result = self._post(payload)
         return result
     
