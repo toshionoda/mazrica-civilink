@@ -20,6 +20,11 @@ on:
         required: false
         default: '案件一覧_v2'
         type: string
+      additional_spreadsheet_ids:
+        description: '追加書き込み先スプレッドシートID（カンマ区切り、空でSecret値を使用）'
+        required: false
+        default: ''
+        type: string
 
 env:
   PYTHON_VERSION: '3.11'
@@ -49,6 +54,7 @@ jobs:
           APPS_SCRIPT_URL: ${{ secrets.APPS_SCRIPT_URL }}
           DEAL_TYPE_ID: ${{ github.event.inputs.deal_type_id || '' }}
           SHEET_NAME: ${{ github.event.inputs.sheet_name || '案件一覧_v2' }}
+          ADDITIONAL_SPREADSHEET_IDS: ${{ github.event.inputs.additional_spreadsheet_ids || secrets.ADDITIONAL_SPREADSHEET_IDS }}
         run: |
           cd $GITHUB_WORKSPACE
           python -m mazrica.sync_to_sheets

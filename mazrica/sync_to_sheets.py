@@ -219,112 +219,122 @@ def filter_deal(deal: Deal, product_name_filter: str, phase_name_filters: list[s
     return True
 
 
+def _sync_one_spreadsheet(
+    sheets: GoogleSheetsClient,
+    sheet_name: str,
+    deals: list,
+    spreadsheet_id: Optional[str] = None,
+) -> dict:
+    """単一スプレッドシートに対して差分同期を実行"""
+    label = f"spreadsheet_id={spreadsheet_id}" if spreadsheet_id else "active spreadsheet"
+    logger.info(f"[{label}] Getting existing IDs from sheet '{sheet_name}'...")
+    existing_ids = sheets.get_existing_ids(
+        sheet_name, id_column=1, spreadsheet_id=spreadsheet_id
+    )
+    existing_id_set = set(str(id) for id in existing_ids)
+
+    mazrica_id_set = set(str(deal.id) for deal in deals)
+    new_deals = [d for d in deals if str(d.id) not in existing_id_set]
+    delete_ids = [id for id in existing_ids if str(id) not in mazrica_id_set]
+
+    new_rows = []
+    for deal in new_deals:
+        new_rows.extend(deal_to_rows(deal))
+
+    logger.info(f"[{label}] Adding {len(new_rows)} rows, Deleting {len(delete_ids)} rows")
+    result = sheets.sync_data(
+        sheet_name=sheet_name,
+        headers=HEADERS,
+        new_rows=new_rows,
+        delete_ids=delete_ids,
+        id_column=1,
+        spreadsheet_id=spreadsheet_id,
+    )
+    logger.info(f"[{label}] Sync result: {result.get('message')}")
+
+    return {
+        "target": label,
+        "existing_ids": len(existing_ids),
+        "new_rows": len(new_rows),
+        "deleted_rows": len(delete_ids),
+        "message": result.get("message"),
+    }
+
+
 def sync_deals_to_sheets(
     deal_type_id: Optional[int] = None,
     sheet_name: Optional[str] = None,
     product_name_filter: Optional[str] = None,
-    phase_name_filters: Optional[list[str]] = None
+    phase_name_filters: Optional[list[str]] = None,
+    additional_spreadsheet_ids: Optional[list[str]] = None,
 ) -> dict:
     """
     Mazricaの案件一覧をGoogle スプレッドシートに同期
-    
+
     Args:
         deal_type_id: 同期する案件タイプID（Noneの場合は全案件）
         sheet_name: 出力先シート名
         product_name_filter: 商品名フィルタ（部分一致）
         phase_name_filters: フェーズ名フィルタのリスト（いずれかに完全一致）
-    
+        additional_spreadsheet_ids: 追加書き込み先のスプレッドシートIDリスト
+
     Returns:
-        同期結果の統計情報
+        同期結果の統計情報（per_targetに各シートの結果）
     """
     sheet_name = sheet_name or Config.SHEET_NAME
     deal_type_id = deal_type_id or Config.DEAL_TYPE_ID
     product_name_filter = product_name_filter if product_name_filter is not None else Config.FILTER_PRODUCT_NAME
     phase_name_filters = phase_name_filters if phase_name_filters is not None else Config.get_phase_name_list()
-    
+    if additional_spreadsheet_ids is None:
+        additional_spreadsheet_ids = Config.get_additional_spreadsheet_ids()
+
     stats = {
         "total_deals": 0,
         "filtered_deals": 0,
-        "existing_ids": 0,
-        "new_rows": 0,
-        "deleted_rows": 0,
-        "skipped_rows": 0,
+        "per_target": [],
         "synced_at": datetime.now().isoformat(),
         "success": False,
-        "error": None
+        "error": None,
     }
-    
+
     try:
         logger.info("Starting differential sync process...")
         logger.info(f"Filters: product_name='{product_name_filter}', phase_names={phase_name_filters}")
-        
+        logger.info(f"Targets: active + {additional_spreadsheet_ids}")
+
         # Mazricaクライアント初期化
         logger.info("Initializing Mazrica client...")
         mazrica = MazricaClient()
-        
+
         # Google Sheetsクライアント初期化
         logger.info("Initializing Google Sheets client...")
         sheets = GoogleSheetsClient()
-        
-        # 案件データ取得
+
+        # 案件データ取得（全ターゲットで共有）
         logger.info(f"Fetching deals from Mazrica (deal_type_id={deal_type_id})...")
         all_deals = mazrica.fetch_deals_with_products(deal_type_id=deal_type_id)
         stats["total_deals"] = len(all_deals)
         logger.info(f"Fetched {len(all_deals)} deals")
-        
+
         # フィルタリング
         if product_name_filter or phase_name_filters:
             deals = [d for d in all_deals if filter_deal(d, product_name_filter, phase_name_filters)]
-            stats["filtered_deals"] = len(deals)
             logger.info(f"After filtering: {len(deals)} deals")
         else:
             deals = all_deals
-            stats["filtered_deals"] = len(deals)
-        
-        # 既存の案件IDを取得
-        logger.info(f"Getting existing IDs from sheet '{sheet_name}'...")
-        existing_ids = sheets.get_existing_ids(sheet_name, id_column=1)
-        existing_id_set = set(str(id) for id in existing_ids)
-        stats["existing_ids"] = len(existing_ids)
-        logger.info(f"Found {len(existing_ids)} existing IDs in sheet")
-        
-        # Mazricaの案件IDセットを作成
-        mazrica_id_set = set(str(deal.id) for deal in deals)
-        
-        # 新規案件を判定（Mazricaにあり、シートにない）
-        new_deals = [d for d in deals if str(d.id) not in existing_id_set]
-        logger.info(f"New deals to add: {len(new_deals)}")
-        
-        # 削除対象を判定（シートにあり、Mazricaにない）
-        delete_ids = [id for id in existing_ids if str(id) not in mazrica_id_set]
-        logger.info(f"Deals to delete: {len(delete_ids)}")
-        
-        # スキップ対象を計算
-        stats["skipped_rows"] = len(existing_id_set) - len(delete_ids)
-        
-        # 新規行のデータ作成
-        new_rows = []
-        for deal in new_deals:
-            rows = deal_to_rows(deal)
-            new_rows.extend(rows)
-        
-        stats["new_rows"] = len(new_rows)
-        stats["deleted_rows"] = len(delete_ids)
-        
-        # 差分同期を実行
-        logger.info(f"Syncing to sheet '{sheet_name}'...")
-        logger.info(f"  Adding {len(new_rows)} rows, Deleting {len(delete_ids)} rows")
-        
-        result = sheets.sync_data(
-            sheet_name=sheet_name,
-            headers=HEADERS,
-            new_rows=new_rows,
-            delete_ids=delete_ids,
-            id_column=1
+        stats["filtered_deals"] = len(deals)
+
+        # active spreadsheet（従来動作）
+        stats["per_target"].append(
+            _sync_one_spreadsheet(sheets, sheet_name, deals, spreadsheet_id=None)
         )
-        
-        logger.info(f"Sync result: {result.get('message')}")
-        
+
+        # 追加スプレッドシート
+        for sid in additional_spreadsheet_ids:
+            stats["per_target"].append(
+                _sync_one_spreadsheet(sheets, sheet_name, deals, spreadsheet_id=sid)
+            )
+
         stats["success"] = True
         logger.info("Differential sync completed successfully!")
         
@@ -360,10 +370,11 @@ def main():
     logger.info("=== Sync Statistics ===")
     logger.info(f"Total deals fetched: {stats['total_deals']}")
     logger.info(f"Deals after filter: {stats['filtered_deals']}")
-    logger.info(f"Existing IDs in sheet: {stats['existing_ids']}")
-    logger.info(f"New rows added: {stats['new_rows']}")
-    logger.info(f"Rows deleted: {stats['deleted_rows']}")
-    logger.info(f"Rows skipped: {stats['skipped_rows']}")
+    for t in stats.get("per_target", []):
+        logger.info(
+            f"  [{t['target']}] existing={t['existing_ids']} "
+            f"new={t['new_rows']} deleted={t['deleted_rows']}"
+        )
     logger.info(f"Synced at: {stats['synced_at']}")
     logger.info(f"Success: {stats['success']}")
     
