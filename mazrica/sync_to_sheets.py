@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 
 # スプレッドシートのヘッダー定義（案件一覧_v2 / 2026-04-22〜）
+# 注: 列18(R)エリア / 列19(S)契約方法 はデプロイ済 Apps Script が案件名から自動抽出・
+# 強制上書きするため、Python側は空欄のまま送る。履行開始日/終了日はその後ろに配置。
 HEADERS = [
     "案件ID",
     "取引先名",
@@ -41,6 +43,8 @@ HEADERS = [
     "プリセールス担当者",
     "無料トライアル開始日",
     "無料トライアル終了日",
+    "エリア",       # Apps Scriptが列18を上書き（案件名2番目の要素）
+    "契約方法",     # Apps Scriptが列19を上書き（無料トライアル/サブスクリプション/有償化クローズ）
     "履行開始日",
     "履行終了日",
     "請求日",
@@ -168,6 +172,8 @@ def deal_to_rows(deal: Deal) -> list[list]:
         customs_by_id.get(CUSTOM_ITEM_IDS["presales_owner"], ""),
         customs_by_id.get(CUSTOM_ITEM_IDS["trial_start"], ""),
         customs_by_id.get(CUSTOM_ITEM_IDS["trial_end"], ""),
+        "",  # 列18: エリア（Apps Scriptが案件名から自動抽出して上書き）
+        "",  # 列19: 契約方法（同上）
         customs_by_id.get(CUSTOM_ITEM_IDS["delivery_start"], ""),
         customs_by_id.get(CUSTOM_ITEM_IDS["delivery_end"], ""),
         customs_by_id.get(CUSTOM_ITEM_IDS["billing_date"], ""),
