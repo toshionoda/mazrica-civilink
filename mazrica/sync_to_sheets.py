@@ -22,26 +22,47 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# スプレッドシートのヘッダー定義
+# スプレッドシートのヘッダー定義（案件一覧_v2 / 2026-04-22〜）
+# 注: 列18(R)エリア / 列19(S)契約方法 はデプロイ済 Apps Script が案件名から自動抽出・
+# 強制上書きするため、Python側は空欄のまま送る。履行開始日/終了日はその後ろに配置。
 HEADERS = [
     "案件ID",
+    "取引先名",
     "案件名",
-    "取引先",
-    "取引先ID",
-    "案件タイプ",
+    "担当者名",
     "フェーズ",
-    "担当者",
-    "商品名",
-    "数量",
-    "単価",
-    "商品金額",
-    "案件金額",
-    "受注予定日",
-    "作成日時",
-    "更新日時",
+    "商品",
+    "契約金額",
+    "契約予定日",
+    "案件発生日",
+    "基本機能_オーナー",
+    "基本機能_エンジニア",
+    "基本機能_サポート",
+    "照査AI",
+    "サービス",
+    "プリセールス担当者",
+    "無料トライアル開始日",
+    "無料トライアル終了日",
+    "エリア",       # Apps Scriptが列18を上書き（案件名2番目の要素）
+    "契約方法",     # Apps Scriptが列19を上書き（無料トライアル/サブスクリプション/有償化クローズ）
+    "履行開始日",
+    "履行終了日",
+    "請求日",
     "ユーザー数",  # 案件名から抽出
     "期間",        # 案件名から抽出
+    "更新日時",
 ]
+
+# dealCustoms の管理番号マップ（取得時にこのIDで引く）
+CUSTOM_ITEM_IDS = {
+    "service": 80085,              # サービス
+    "presales_owner": 92215,       # プリセールス担当者
+    "trial_start": 99770,          # 無料トライアル開始日（CiviLink）
+    "trial_end": 99771,            # 無料トライアル終了日（CiviLink）
+    "delivery_start": 41081,       # 履行開始日
+    "delivery_end": 34237,         # 履行終了日
+    "billing_date": 34243,         # 請求日
+}
 
 
 import re
@@ -75,62 +96,92 @@ def extract_users_and_period(deal_name: str) -> tuple[str, str]:
     return users, period
 
 
+def _date_part(dt: str) -> str:
+    """ISO形式の日時文字列から日付部分を取り出す（'2026-02-19T15:58:46+09:00' → '2026-02-19'）"""
+    if not dt:
+        return ""
+    return dt.split("T", 1)[0]
+
+
+def _bucket_product_detail(name: str) -> Optional[str]:
+    """商品内訳の名前から集計バケットを判定。いずれにも該当しなければNone"""
+    if not name:
+        return None
+    if "AI" in name or "配筋図" in name:
+        return "ai"
+    if "サポート" in name:
+        return "support"
+    if "オーナー" in name:
+        return "owner"
+    if "エンジニア" in name:
+        return "engineer"
+    return None
+
+
+def _aggregate_product_buckets(deal: Deal) -> dict:
+    """商品内訳を4バケット(owner/engineer/support/ai)に集計。数量を合算"""
+    buckets = {"owner": 0.0, "engineer": 0.0, "support": 0.0, "ai": 0.0}
+    matched_any = {"owner": False, "engineer": False, "support": False, "ai": False}
+    for pd in deal.product_details:
+        bucket = _bucket_product_detail(pd.product_name)
+        if bucket is None:
+            continue
+        qty = pd.quantity if pd.quantity is not None else 0.0
+        buckets[bucket] += qty
+        matched_any[bucket] = True
+    # 未マッチのバケットは空文字、マッチありは数値（整数なら整数で、小数なら小数で）
+    result = {}
+    for k, v in buckets.items():
+        if not matched_any[k]:
+            result[k] = ""
+        elif v == int(v):
+            result[k] = int(v)
+        else:
+            result[k] = v
+    return result
+
+
 def deal_to_rows(deal: Deal) -> list[list]:
     """
-    案件データをスプレッドシートの行に変換
-    商品内訳がある場合は商品ごとに行を作成
+    案件データをスプレッドシートの行に変換（1案件1行）
+    商品内訳は4バケット（基本機能_オーナー/エンジニア/サポート/照査AI）に集計
     """
-    rows = []
-    
-    # 案件名からユーザー数と期間を抽出
+    # 案件名からユーザー数・期間を抽出（既存ロジック）
     users, period = extract_users_and_period(deal.name)
-    
-    # 共通データ
-    base_data = [
+
+    # 商品内訳を4バケットに集計
+    buckets = _aggregate_product_buckets(deal)
+
+    customs_by_id = deal.customs_by_id or {}
+
+    row = [
         deal.id,
-        deal.name,
         deal.customer_name or "",
-        deal.customer_id or "",
-        deal.deal_type_name or "",
-        deal.phase_name or "",
+        deal.name,
         deal.user_name or "",
+        deal.phase_name or "",
+        deal.product_name or "",
+        deal.amount if deal.amount is not None else "",
+        deal.expected_contract_date or "",
+        _date_part(deal.created_at),
+        buckets["owner"],
+        buckets["engineer"],
+        buckets["support"],
+        buckets["ai"],
+        customs_by_id.get(CUSTOM_ITEM_IDS["service"], ""),
+        customs_by_id.get(CUSTOM_ITEM_IDS["presales_owner"], ""),
+        customs_by_id.get(CUSTOM_ITEM_IDS["trial_start"], ""),
+        customs_by_id.get(CUSTOM_ITEM_IDS["trial_end"], ""),
+        "",  # 列18: エリア（Apps Scriptが案件名から自動抽出して上書き）
+        "",  # 列19: 契約方法（同上）
+        customs_by_id.get(CUSTOM_ITEM_IDS["delivery_start"], ""),
+        customs_by_id.get(CUSTOM_ITEM_IDS["delivery_end"], ""),
+        customs_by_id.get(CUSTOM_ITEM_IDS["billing_date"], ""),
+        users,
+        period,
+        deal.updated_at,
     ]
-    
-    # 商品名は deal.product_name から取得
-    product_name = deal.product_name or ""
-    
-    # 共通の末尾データ（ユーザー数、期間）
-    suffix_data = [users, period]
-    
-    if deal.product_details:
-        # 商品内訳詳細がある場合は商品ごとに行を作成
-        for pd in deal.product_details:
-            row = base_data + [
-                pd.product_name or product_name,  # 商品内訳の商品名、なければ案件の商品名
-                pd.quantity if pd.quantity is not None else "",
-                pd.unit_price if pd.unit_price is not None else "",
-                pd.amount if pd.amount is not None else "",
-                deal.amount if deal.amount is not None else "",
-                deal.expected_contract_date or "",
-                deal.created_at,
-                deal.updated_at,
-            ] + suffix_data
-            rows.append(row)
-    else:
-        # 商品内訳がない場合は1行のみ（商品名は deal.product_name を使用）
-        row = base_data + [
-            product_name,  # 商品名
-            "",  # 数量
-            "",  # 単価
-            "",  # 商品金額
-            deal.amount if deal.amount is not None else "",
-            deal.expected_contract_date or "",
-            deal.created_at,
-            deal.updated_at,
-        ] + suffix_data
-        rows.append(row)
-    
-    return rows
+    return [row]
 
 
 def filter_deal(deal: Deal, product_name_filter: str, phase_name_filters: list[str]) -> bool:

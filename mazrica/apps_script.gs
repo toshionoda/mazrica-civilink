@@ -105,12 +105,25 @@ function syncData(data) {
   
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(sheetName);
-  
+
   // シートがなければ作成
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
-    // ヘッダーを書き込み
-    if (headers && headers.length > 0) {
+  }
+
+  // ヘッダーを常に最新に保つ（既存シートでもシェイプ変更を反映）
+  if (headers && headers.length > 0) {
+    const currentLastCol = sheet.getLastColumn();
+    const currentHeaders = currentLastCol > 0
+      ? sheet.getRange(1, 1, 1, currentLastCol).getValues()[0]
+      : [];
+    const needsUpdate = JSON.stringify(currentHeaders) !== JSON.stringify(headers);
+    if (needsUpdate) {
+      // 旧ヘッダーより新ヘッダーが短い可能性に備え、広めにクリアしてから書き直す
+      const clearCols = Math.max(currentLastCol, headers.length);
+      if (clearCols > 0) {
+        sheet.getRange(1, 1, 1, clearCols).clearContent();
+      }
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
       const headerRange = sheet.getRange(1, 1, 1, headers.length);
       headerRange.setFontWeight('bold');
@@ -118,7 +131,7 @@ function syncData(data) {
       sheet.setFrozenRows(1);
     }
   }
-  
+
   let deletedCount = 0;
   let addedCount = 0;
   

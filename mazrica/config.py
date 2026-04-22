@@ -15,7 +15,7 @@ class Config:
     # Google Sheets設定（Apps Script連携）
     APPS_SCRIPT_URL: str = os.environ.get("APPS_SCRIPT_URL", "")
     APPS_SCRIPT_SECRET: str = os.environ.get("APPS_SCRIPT_SECRET", "")
-    SHEET_NAME: str = os.environ.get("SHEET_NAME", "案件一覧")
+    SHEET_NAME: str = os.environ.get("SHEET_NAME", "案件一覧_v2")
     
     # 同期設定
     DEAL_TYPE_ID: Optional[int] = (
