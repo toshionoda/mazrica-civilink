@@ -22,26 +22,41 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# スプレッドシートのヘッダー定義
+# スプレッドシートのヘッダー定義（案件一覧_v2 / 2026-04-22〜）
 HEADERS = [
     "案件ID",
+    "取引先名",
     "案件名",
-    "取引先",
-    "取引先ID",
-    "案件タイプ",
+    "担当者名",
     "フェーズ",
-    "担当者",
-    "商品名",
-    "数量",
-    "単価",
-    "商品金額",
-    "案件金額",
-    "受注予定日",
-    "作成日時",
-    "更新日時",
+    "商品",
+    "契約金額",
+    "契約予定日",
+    "案件発生日",
+    "商品内訳_項目",
+    "商品内訳_数量",
+    "サービス",
+    "プリセールス担当者",
+    "無料トライアル開始日",
+    "無料トライアル終了日",
+    "履行開始日",
+    "履行終了日",
+    "請求日",
     "ユーザー数",  # 案件名から抽出
     "期間",        # 案件名から抽出
+    "更新日時",
 ]
+
+# dealCustoms の管理番号マップ（取得時にこのIDで引く）
+CUSTOM_ITEM_IDS = {
+    "service": 80085,              # サービス
+    "presales_owner": 92215,       # プリセールス担当者
+    "trial_start": 99770,          # 無料トライアル開始日（CiviLink）
+    "trial_end": 99771,            # 無料トライアル終了日（CiviLink）
+    "delivery_start": 41081,       # 履行開始日
+    "delivery_end": 34237,         # 履行終了日
+    "billing_date": 34243,         # 請求日
+}
 
 
 import re
@@ -75,61 +90,65 @@ def extract_users_and_period(deal_name: str) -> tuple[str, str]:
     return users, period
 
 
+def _date_part(dt: str) -> str:
+    """ISO形式の日時文字列から日付部分を取り出す（'2026-02-19T15:58:46+09:00' → '2026-02-19'）"""
+    if not dt:
+        return ""
+    return dt.split("T", 1)[0]
+
+
 def deal_to_rows(deal: Deal) -> list[list]:
     """
     案件データをスプレッドシートの行に変換
-    商品内訳がある場合は商品ごとに行を作成
+    商品内訳がある場合は商品ごとに行を作成（行展開方式）
+    商品内訳が無い場合は項目・数量を空欄にして1行返す
     """
     rows = []
-    
-    # 案件名からユーザー数と期間を抽出
+
+    # 案件名からユーザー数・期間を抽出（既存ロジック）
     users, period = extract_users_and_period(deal.name)
-    
-    # 共通データ
-    base_data = [
+
+    # 案件レベル共通データ（列1〜9）
+    head = [
         deal.id,
-        deal.name,
         deal.customer_name or "",
-        deal.customer_id or "",
-        deal.deal_type_name or "",
-        deal.phase_name or "",
+        deal.name,
         deal.user_name or "",
+        deal.phase_name or "",
+        deal.product_name or "",
+        deal.amount if deal.amount is not None else "",
+        deal.expected_contract_date or "",
+        _date_part(deal.created_at),
     ]
-    
-    # 商品名は deal.product_name から取得
-    product_name = deal.product_name or ""
-    
-    # 共通の末尾データ（ユーザー数、期間）
-    suffix_data = [users, period]
-    
+
+    # カスタム項目（列12〜18）
+    customs_by_id = deal.customs_by_id or {}
+    custom_cols = [
+        customs_by_id.get(CUSTOM_ITEM_IDS["service"], ""),
+        customs_by_id.get(CUSTOM_ITEM_IDS["presales_owner"], ""),
+        customs_by_id.get(CUSTOM_ITEM_IDS["trial_start"], ""),
+        customs_by_id.get(CUSTOM_ITEM_IDS["trial_end"], ""),
+        customs_by_id.get(CUSTOM_ITEM_IDS["delivery_start"], ""),
+        customs_by_id.get(CUSTOM_ITEM_IDS["delivery_end"], ""),
+        customs_by_id.get(CUSTOM_ITEM_IDS["billing_date"], ""),
+    ]
+
+    # 末尾（列19〜21）
+    tail = [users, period, deal.updated_at]
+
     if deal.product_details:
-        # 商品内訳詳細がある場合は商品ごとに行を作成
+        # 商品内訳ごとに1行
         for pd in deal.product_details:
-            row = base_data + [
-                pd.product_name or product_name,  # 商品内訳の商品名、なければ案件の商品名
-                pd.quantity if pd.quantity is not None else "",
-                pd.unit_price if pd.unit_price is not None else "",
-                pd.amount if pd.amount is not None else "",
-                deal.amount if deal.amount is not None else "",
-                deal.expected_contract_date or "",
-                deal.created_at,
-                deal.updated_at,
-            ] + suffix_data
+            row = head + [
+                pd.product_name or "",  # 商品内訳_項目
+                pd.quantity if pd.quantity is not None else "",  # 商品内訳_数量
+            ] + custom_cols + tail
             rows.append(row)
     else:
-        # 商品内訳がない場合は1行のみ（商品名は deal.product_name を使用）
-        row = base_data + [
-            product_name,  # 商品名
-            "",  # 数量
-            "",  # 単価
-            "",  # 商品金額
-            deal.amount if deal.amount is not None else "",
-            deal.expected_contract_date or "",
-            deal.created_at,
-            deal.updated_at,
-        ] + suffix_data
+        # 商品内訳なし: 項目・数量を空欄
+        row = head + ["", ""] + custom_cols + tail
         rows.append(row)
-    
+
     return rows
 
 
