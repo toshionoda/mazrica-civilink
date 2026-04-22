@@ -33,8 +33,10 @@ HEADERS = [
     "契約金額",
     "契約予定日",
     "案件発生日",
-    "商品内訳_項目",
-    "商品内訳_数量",
+    "基本機能_オーナー",
+    "基本機能_エンジニア",
+    "基本機能_サポート",
+    "照査AI",
     "サービス",
     "プリセールス担当者",
     "無料トライアル開始日",
@@ -97,19 +99,58 @@ def _date_part(dt: str) -> str:
     return dt.split("T", 1)[0]
 
 
+def _bucket_product_detail(name: str) -> Optional[str]:
+    """商品内訳の名前から集計バケットを判定。いずれにも該当しなければNone"""
+    if not name:
+        return None
+    if "AI" in name or "配筋図" in name:
+        return "ai"
+    if "サポート" in name:
+        return "support"
+    if "オーナー" in name:
+        return "owner"
+    if "エンジニア" in name:
+        return "engineer"
+    return None
+
+
+def _aggregate_product_buckets(deal: Deal) -> dict:
+    """商品内訳を4バケット(owner/engineer/support/ai)に集計。数量を合算"""
+    buckets = {"owner": 0.0, "engineer": 0.0, "support": 0.0, "ai": 0.0}
+    matched_any = {"owner": False, "engineer": False, "support": False, "ai": False}
+    for pd in deal.product_details:
+        bucket = _bucket_product_detail(pd.product_name)
+        if bucket is None:
+            continue
+        qty = pd.quantity if pd.quantity is not None else 0.0
+        buckets[bucket] += qty
+        matched_any[bucket] = True
+    # 未マッチのバケットは空文字、マッチありは数値（整数なら整数で、小数なら小数で）
+    result = {}
+    for k, v in buckets.items():
+        if not matched_any[k]:
+            result[k] = ""
+        elif v == int(v):
+            result[k] = int(v)
+        else:
+            result[k] = v
+    return result
+
+
 def deal_to_rows(deal: Deal) -> list[list]:
     """
-    案件データをスプレッドシートの行に変換
-    商品内訳がある場合は商品ごとに行を作成（行展開方式）
-    商品内訳が無い場合は項目・数量を空欄にして1行返す
+    案件データをスプレッドシートの行に変換（1案件1行）
+    商品内訳は4バケット（基本機能_オーナー/エンジニア/サポート/照査AI）に集計
     """
-    rows = []
-
     # 案件名からユーザー数・期間を抽出（既存ロジック）
     users, period = extract_users_and_period(deal.name)
 
-    # 案件レベル共通データ（列1〜9）
-    head = [
+    # 商品内訳を4バケットに集計
+    buckets = _aggregate_product_buckets(deal)
+
+    customs_by_id = deal.customs_by_id or {}
+
+    row = [
         deal.id,
         deal.customer_name or "",
         deal.name,
@@ -119,11 +160,10 @@ def deal_to_rows(deal: Deal) -> list[list]:
         deal.amount if deal.amount is not None else "",
         deal.expected_contract_date or "",
         _date_part(deal.created_at),
-    ]
-
-    # カスタム項目（列12〜18）
-    customs_by_id = deal.customs_by_id or {}
-    custom_cols = [
+        buckets["owner"],
+        buckets["engineer"],
+        buckets["support"],
+        buckets["ai"],
         customs_by_id.get(CUSTOM_ITEM_IDS["service"], ""),
         customs_by_id.get(CUSTOM_ITEM_IDS["presales_owner"], ""),
         customs_by_id.get(CUSTOM_ITEM_IDS["trial_start"], ""),
@@ -131,25 +171,11 @@ def deal_to_rows(deal: Deal) -> list[list]:
         customs_by_id.get(CUSTOM_ITEM_IDS["delivery_start"], ""),
         customs_by_id.get(CUSTOM_ITEM_IDS["delivery_end"], ""),
         customs_by_id.get(CUSTOM_ITEM_IDS["billing_date"], ""),
+        users,
+        period,
+        deal.updated_at,
     ]
-
-    # 末尾（列19〜21）
-    tail = [users, period, deal.updated_at]
-
-    if deal.product_details:
-        # 商品内訳ごとに1行
-        for pd in deal.product_details:
-            row = head + [
-                pd.product_name or "",  # 商品内訳_項目
-                pd.quantity if pd.quantity is not None else "",  # 商品内訳_数量
-            ] + custom_cols + tail
-            rows.append(row)
-    else:
-        # 商品内訳なし: 項目・数量を空欄
-        row = head + ["", ""] + custom_cols + tail
-        rows.append(row)
-
-    return rows
+    return [row]
 
 
 def filter_deal(deal: Deal, product_name_filter: str, phase_name_filters: list[str]) -> bool:
