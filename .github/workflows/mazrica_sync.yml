@@ -18,7 +18,7 @@ on:
       sheet_name:
         description: '出力先シート名'
         required: false
-        default: '案件一覧'
+        default: '案件一覧_v2'
         type: string
 
 env:
@@ -48,7 +48,7 @@ jobs:
           MAZRICA_API_KEY: ${{ secrets.MAZRICA_API_KEY }}
           APPS_SCRIPT_URL: ${{ secrets.APPS_SCRIPT_URL }}
           DEAL_TYPE_ID: ${{ github.event.inputs.deal_type_id || '' }}
-          SHEET_NAME: ${{ github.event.inputs.sheet_name || '案件一覧' }}
+          SHEET_NAME: ${{ github.event.inputs.sheet_name || '案件一覧_v2' }}
         run: |
           cd $GITHUB_WORKSPACE
           python -m mazrica.sync_to_sheets
