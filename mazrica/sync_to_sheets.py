@@ -235,17 +235,27 @@ def _sync_one_spreadsheet(
 
     mazrica_id_set = set(str(deal.id) for deal in deals)
     new_deals = [d for d in deals if str(d.id) not in existing_id_set]
+    update_deals = [d for d in deals if str(d.id) in existing_id_set]
     delete_ids = [id for id in existing_ids if str(id) not in mazrica_id_set]
 
     new_rows = []
     for deal in new_deals:
         new_rows.extend(deal_to_rows(deal))
 
-    logger.info(f"[{label}] Adding {len(new_rows)} rows, Deleting {len(delete_ids)} rows")
+    update_rows = []
+    for deal in update_deals:
+        update_rows.extend(deal_to_rows(deal))
+
+    logger.info(
+        f"[{label}] Adding {len(new_rows)} rows, "
+        f"Updating {len(update_rows)} rows, "
+        f"Deleting {len(delete_ids)} rows"
+    )
     result = sheets.sync_data(
         sheet_name=sheet_name,
         headers=HEADERS,
         new_rows=new_rows,
+        update_rows=update_rows,
         delete_ids=delete_ids,
         id_column=1,
         spreadsheet_id=spreadsheet_id,
@@ -256,6 +266,7 @@ def _sync_one_spreadsheet(
         "target": label,
         "existing_ids": len(existing_ids),
         "new_rows": len(new_rows),
+        "updated_rows": len(update_rows),
         "deleted_rows": len(delete_ids),
         "message": result.get("message"),
     }
@@ -373,7 +384,8 @@ def main():
     for t in stats.get("per_target", []):
         logger.info(
             f"  [{t['target']}] existing={t['existing_ids']} "
-            f"new={t['new_rows']} deleted={t['deleted_rows']}"
+            f"new={t['new_rows']} updated={t.get('updated_rows', 0)} "
+            f"deleted={t['deleted_rows']}"
         )
     logger.info(f"Synced at: {stats['synced_at']}")
     logger.info(f"Success: {stats['success']}")

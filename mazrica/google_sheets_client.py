@@ -191,20 +191,22 @@ class GoogleSheetsClient:
         headers: list[str],
         new_rows: list[list[Any]],
         delete_ids: list,
+        update_rows: Optional[list[list[Any]]] = None,
         id_column: int = 1,
         spreadsheet_id: Optional[str] = None,
         sync_customer_list: bool = True,
     ) -> dict:
         """
-        差分同期を実行（新規追加・削除）
-        
+        差分同期を実行（新規追加・既存上書き・削除）
+
         Args:
             sheet_name: シート名
             headers: ヘッダー行
             new_rows: 新規追加する行のリスト
             delete_ids: 削除する案件IDのリスト
+            update_rows: 既存行の上書き用データ（案件IDで突合）。None / 空リストの場合は上書きしない
             id_column: 案件IDの列番号（1始まり）
-        
+
         Returns:
             同期結果
         """
@@ -213,19 +215,24 @@ class GoogleSheetsClient:
             if v is None:
                 return ""
             return v
-        
+
         converted_rows = [
             [convert_value(cell) for cell in row]
             for row in new_rows
         ]
+        converted_update_rows = [
+            [convert_value(cell) for cell in row]
+            for row in (update_rows or [])
+        ]
         converted_headers = [convert_value(cell) for cell in headers]
         converted_delete_ids = [convert_value(id) for id in delete_ids]
-        
+
         payload = {
             'action': 'sync',
             'sheet_name': sheet_name,
             'headers': converted_headers,
             'new_rows': converted_rows,
+            'update_rows': converted_update_rows,
             'delete_ids': converted_delete_ids,
             'id_column': id_column,
             'sync_customer_list': sync_customer_list,

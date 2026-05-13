@@ -292,6 +292,7 @@ function syncData(data) {
   const sheetName = data.sheet_name || CONFIG.SHEET_NAME;
   const headers = data.headers;
   const newRows = data.new_rows || [];
+  const updateRows = data.update_rows || [];
   const deleteIds = data.delete_ids || [];
   const idColumn = data.id_column || CONFIG.ID_COLUMN;
 
@@ -342,6 +343,7 @@ function syncData(data) {
 
   let deletedCount = 0;
   let addedCount = 0;
+  let updatedCount = 0;
 
   // 削除処理
   if (deleteIds.length > 0) {
@@ -363,6 +365,55 @@ function syncData(data) {
       for (const rowNum of rowsToDelete) {
         sheet.deleteRow(rowNum);
         deletedCount++;
+      }
+    }
+  }
+
+  // 既存行の上書き処理（A〜Y の同期列のみ、Z列以降は触らない）
+  // - update_rows を案件ID で既存行に突合
+  // - addExtractedFields でエリア(R)/契約方法(S)を案件名から再算出
+  // - 既存データの該当範囲を読み出してメモリ上で差し替え、1回の setValues で書き戻し
+  if (updateRows.length > 0) {
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      // 同期列数: ヘッダー長を基準にしつつ R/S 列まで必ず含める
+      const headerLen = headers ? headers.length : 0;
+      const syncColCount = Math.max(
+        headerLen,
+        contractTypeColumnIndex + 1,
+        areaColumnIndex + 1
+      );
+
+      const existingRange = sheet.getRange(2, 1, lastRow - 1, syncColCount);
+      const existingData = existingRange.getValues();
+
+      const idToIdx = new Map();
+      for (let i = 0; i < existingData.length; i++) {
+        const cellId = String(existingData[i][idColumn - 1]);
+        if (cellId) idToIdx.set(cellId, i);
+      }
+
+      for (const row of updateRows) {
+        const id = String(row[idColumn - 1] || '');
+        if (!id) continue;
+        const idx = idToIdx.get(id);
+        if (idx === undefined) continue;
+
+        const processedRow = addExtractedFields(
+          [...row], bColumnIndex, areaColumnIndex, contractTypeColumnIndex
+        );
+
+        // 同期列数に正規化（短ければ '' で埋め、長ければ切り捨て）
+        const fixedRow = new Array(syncColCount);
+        for (let c = 0; c < syncColCount; c++) {
+          fixedRow[c] = c < processedRow.length ? processedRow[c] : '';
+        }
+        existingData[idx] = fixedRow;
+        updatedCount++;
+      }
+
+      if (updatedCount > 0) {
+        sheet.getRange(2, 1, existingData.length, syncColCount).setValues(existingData);
       }
     }
   }
@@ -400,7 +451,7 @@ function syncData(data) {
   }
 
   return createResponse(true,
-    'Sync completed: added ' + addedCount + ' rows, deleted ' + deletedCount + ' rows. ' +
+    'Sync completed: added ' + addedCount + ' rows, updated ' + updatedCount + ' rows, deleted ' + deletedCount + ' rows. ' +
     'Customer list: added ' + customerListResult.synced + ', skipped ' + customerListResult.skipped
   );
 }
