@@ -29,6 +29,8 @@ class CivilinkScraper:
     BASE_URL = "https://civilink.malme.app"
     LOGIN_URL = f"{BASE_URL}/login"
     ACCOUNTS_URL = f"{BASE_URL}/admin/accounts"
+    # 組織ユーザーポップアップの DOM id (civilink-frontend AdminAccountsComponentPage で定義)
+    MEMBERS_DIALOG_ID = "organization_members_id"
 
     def __init__(self, email: str, password: str, headless: bool = True):
         self.email = email
@@ -133,25 +135,9 @@ class CivilinkScraper:
         # 追加の待機（動的コンテンツのため）
         self.page.wait_for_timeout(5000)
 
-        # デバッグ: スクリーンショット保存
+        # デバッグ: スクリーンショット保存（失敗時の調査用、artifactとして残る）
         self.page.screenshot(path="debug_accounts_page.png")
         print("スクリーンショット保存: debug_accounts_page.png")
-
-        # デバッグ: ページのHTML構造を出力
-        html_content = self.page.content()
-        print(f"ページHTML（先頭3000文字）:\n{html_content[:3000]}")
-
-        # デバッグ: 各種セレクタで要素数を確認
-        print("\n=== セレクタ検証 ===")
-        print(f"table: {self.page.locator('table').count()}")
-        print(f"tr: {self.page.locator('tr').count()}")
-        print(f"div with role=row: {self.page.locator('[role=row]').count()}")
-        print(f"div with role=grid: {self.page.locator('[role=grid]').count()}")
-        print(f"text=未登録: {self.page.locator('text=未登録').count()}")
-        print(f"text=株式会社: {self.page.locator('text=株式会社').count()}")
-        print(f"text=招待中: {self.page.locator('text=招待中').count()}")
-        dots_selector = 'button:has-text("...")'
-        print(f"button with ...: {self.page.locator(dots_selector).count()}")
 
     def _scroll_to_render_all_rows(self, verbose: bool = True):
         """仮想スクロールテーブルの全行をレンダリングさせる
@@ -276,8 +262,8 @@ class CivilinkScraper:
                 # ページリロード後はテーブルを再取得
                 row = self.page.locator("table tr").nth(i)
 
-                # 招待中ラベルがあるかチェック（オレンジ色のバッジ）
-                invited_badge = row.locator("span.bg-orange-100")
+                # 招待中ラベルがあるかチェック (テキスト判定: Tailwind色クラス依存だと frontend のスタイル変更で壊れるため)
+                invited_badge = row.locator('span:has-text("招待中")')
                 if invited_badge.count() > 0:
                     print(f"  [{i+1}] スキップ: 招待中")
                     i += 1
@@ -331,7 +317,10 @@ class CivilinkScraper:
                     self.page.wait_for_timeout(500)
 
                     # 「編集」メニューをクリックしてトグル状態を取得
-                    edit_menu = self.page.locator('text=編集').first
+                    # role=menuitem を優先 (Radix DropdownMenuItem)、後方互換で text= もフォールバック
+                    edit_menu = self.page.get_by_role("menuitem", name="編集").first
+                    if edit_menu.count() == 0:
+                        edit_menu = self.page.locator('text=編集').first
                     if edit_menu.count() > 0:
                         try:
                             edit_menu.click()
@@ -347,8 +336,8 @@ class CivilinkScraper:
                             # エラー時はポップアップを閉じる試行
                             try:
                                 self._close_edit_popup()
-                            except:
-                                pass
+                            except Exception as ce:
+                                print(f"    編集ポップアップ閉じ試行エラー: {ce}")
 
                         # メニューを再度開く
                         row = self.page.locator("table tr").nth(i)
@@ -369,13 +358,15 @@ class CivilinkScraper:
                         self.page.wait_for_timeout(500)
 
                     # 「組織ユーザー」メニューをクリック
-                    user_menu = self.page.locator('text=組織ユーザー').first
+                    user_menu = self.page.get_by_role("menuitem", name="組織ユーザー").first
+                    if user_menu.count() == 0:
+                        user_menu = self.page.locator('text=組織ユーザー').first
                     if user_menu.count() > 0:
                         user_menu.click()
                         self.page.wait_for_timeout(1000)
 
                         # ポップアップが表示されるまで待機
-                        popup = self.page.locator('#organization_members_id')
+                        popup = self.page.locator(f'#{self.MEMBERS_DIALOG_ID}')
                         try:
                             popup.wait_for(state="visible", timeout=30000)
 
@@ -400,8 +391,10 @@ class CivilinkScraper:
                         except Exception as e:
                             print(f"    ポップアップエラー: {e}")
                             try:
-                                self.page.screenshot(path="debug_org_users_popup_fail.png")
-                                print("    スクリーンショット保存: debug_org_users_popup_fail.png")
+                                safe = "".join(c for c in org_name if c.isalnum())[:30] or f"row{i+1}"
+                                path = f"debug_org_users_popup_fail_{safe}.png"
+                                self.page.screenshot(path=path)
+                                print(f"    スクリーンショット保存: {path}")
                             except Exception as se:
                                 print(f"    スクリーンショット保存失敗: {se}")
                             # エラー時もリロードして継続
@@ -426,8 +419,8 @@ class CivilinkScraper:
                 # エラー時はリロードして継続
                 try:
                     self._reload_and_prepare_table()
-                except:
-                    pass
+                except Exception as re:
+                    print(f"  リロード試行エラー: {re}")
                 i += 1
                 continue
 
@@ -449,8 +442,8 @@ class CivilinkScraper:
         users = []
 
         try:
-            # ポップアップを取得（#organization_members_id を使用）
-            popup = self.page.locator('#organization_members_id')
+            # ポップアップを取得
+            popup = self.page.locator(f'#{self.MEMBERS_DIALOG_ID}')
             if popup.count() == 0:
                 print("    ポップアップが見つかりません")
                 return users
@@ -511,7 +504,6 @@ class CivilinkScraper:
         except Exception as e:
             print(f"    ユーザー取得エラー: {e}")
 
-        print(f"    ユーザー数: {len(users)}")
         return users
 
     def _read_switch_state(self, locator) -> str:
@@ -542,7 +534,8 @@ class CivilinkScraper:
                     return "---"
 
             return "---"
-        except Exception:
+        except Exception as e:
+            print(f"    スイッチ状態読み取りエラー: {e}")
             return "---"
 
     def _read_toggle_state(self, dialog, label_text: str) -> str:
@@ -727,8 +720,8 @@ class CivilinkScraper:
             try:
                 self.page.evaluate("document.querySelector('[role=\"dialog\"]')?.closest('[data-state]')?.remove() || document.querySelector('[role=\"dialog\"]')?.remove()")
                 print("    フォールバック: JavaScriptで削除")
-            except:
-                pass
+            except Exception as fe:
+                print(f"    フォールバック削除エラー: {fe}")
             self._remove_overlay()
             self.page.wait_for_timeout(500)
 
@@ -745,40 +738,6 @@ class CivilinkScraper:
             print("    オーバーレイを削除しました")
         except Exception as e:
             print(f"    オーバーレイ削除エラー: {e}")
-
-    def _close_popup(self):
-        """ポップアップを閉じる"""
-        try:
-            # organization_members_id のポップアップを閉じる
-            popup = self.page.locator('#organization_members_id')
-
-            if popup.count() > 0:
-                # 方法1: JavaScriptで直接削除（最も確実）
-                self.page.evaluate("document.getElementById('organization_members_id')?.remove()")
-                print("    JavaScriptでポップアップを削除しました")
-                self.page.wait_for_timeout(300)
-
-                # 削除されたか確認
-                if popup.count() == 0:
-                    print("    ポップアップ削除成功")
-                else:
-                    # 方法2: オーバーレイ背景をクリック
-                    print("    まだポップアップが存在、背景クリックを試行")
-                    self.page.mouse.click(10, 10)
-                    self.page.wait_for_timeout(500)
-            else:
-                print("    ポップアップは既に閉じています")
-
-            self.page.wait_for_timeout(300)
-        except Exception as e:
-            print(f"    ポップアップを閉じる際のエラー: {e}")
-            # フォールバック: JavaScriptで強制削除
-            try:
-                self.page.evaluate("document.getElementById('organization_members_id')?.remove()")
-                print("    フォールバック: JavaScriptで削除")
-            except:
-                pass
-            self.page.wait_for_timeout(500)
 
 
 def main():
@@ -822,8 +781,10 @@ def main():
     print(f"\n取得件数: {len(data)}")
 
     if not data:
-        print("データがありません")
-        sys.exit(0)
+        # 0件はスクレイパー破損の可能性が高い (frontend selector 変更等)。
+        # workflow を失敗扱いにして気付けるようにする。
+        print("データがありません: 0件取得は異常なので exit 1 で終了します")
+        sys.exit(1)
 
     # Google Sheetsに書き込み
     print("\nGoogle Sheetsに書き込み中...")

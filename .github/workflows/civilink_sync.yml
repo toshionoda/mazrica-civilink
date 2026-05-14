@@ -9,7 +9,7 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 30  # 最大30分でタイムアウト（リロード＋スクロール方式のため）
+    timeout-minutes: 45  # 最大45分（成功時は ~20分。Civilink応答遅延+失敗時30s wait のマージン込み）
 
     steps:
       - name: Checkout repository
