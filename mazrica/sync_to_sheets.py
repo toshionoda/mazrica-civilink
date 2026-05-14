@@ -50,6 +50,8 @@ HEADERS = [
     "請求日",
     "ユーザー数",  # 案件名から抽出
     "期間",        # 案件名から抽出
+    "分野",        # dealCustoms[75529] single_select
+    "特記事項",    # dealCustoms[92214] text
     "更新日時",
 ]
 
@@ -62,6 +64,8 @@ CUSTOM_ITEM_IDS = {
     "delivery_start": 41081,       # 履行開始日
     "delivery_end": 34237,         # 履行終了日
     "billing_date": 34243,         # 請求日
+    "field": 75529,                # 分野（single_select）
+    "remarks": 92214,              # 特記事項（text）
 }
 
 
@@ -179,6 +183,8 @@ def deal_to_rows(deal: Deal) -> list[list]:
         customs_by_id.get(CUSTOM_ITEM_IDS["billing_date"], ""),
         users,
         period,
+        customs_by_id.get(CUSTOM_ITEM_IDS["field"], ""),    # 列25 Y: 分野
+        customs_by_id.get(CUSTOM_ITEM_IDS["remarks"], ""),  # 列26 Z: 特記事項
         deal.updated_at,
     ]
     return [row]
