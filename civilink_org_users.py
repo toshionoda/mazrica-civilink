@@ -377,7 +377,7 @@ class CivilinkScraper:
                         # ポップアップが表示されるまで待機
                         popup = self.page.locator('#organization_users_id')
                         try:
-                            popup.wait_for(state="visible", timeout=5000)
+                            popup.wait_for(state="visible", timeout=30000)
 
                             # ポップアップからユーザー情報を取得
                             users = self._get_users_from_popup()
@@ -399,6 +399,11 @@ class CivilinkScraper:
 
                         except Exception as e:
                             print(f"    ポップアップエラー: {e}")
+                            try:
+                                self.page.screenshot(path="debug_org_users_popup_fail.png")
+                                print("    スクリーンショット保存: debug_org_users_popup_fail.png")
+                            except Exception as se:
+                                print(f"    スクリーンショット保存失敗: {se}")
                             # エラー時もリロードして継続
                             self._reload_and_prepare_table()
                     else:
