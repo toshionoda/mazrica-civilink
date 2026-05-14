@@ -36,7 +36,12 @@ class Config:
     )
     
     # フィルタ設定
-    FILTER_PRODUCT_NAME: str = os.environ.get("FILTER_PRODUCT_NAME", "civilink")  # 商品名フィルタ
+    # 案件名フィルタ（部分一致・大文字小文字無視）。後方互換のため旧 FILTER_PRODUCT_NAME も拾う
+    FILTER_DEAL_NAME: str = (
+        os.environ.get("FILTER_DEAL_NAME")
+        or os.environ.get("FILTER_PRODUCT_NAME")
+        or "civilink"
+    )
     FILTER_PHASE_NAMES: str = os.environ.get("FILTER_PHASE_NAMES", "")  # フェーズフィルタ（カンマ区切りで複数指定可、空で全フェーズ対象）
     
     @classmethod
