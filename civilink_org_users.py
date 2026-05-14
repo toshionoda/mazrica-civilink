@@ -375,7 +375,7 @@ class CivilinkScraper:
                         self.page.wait_for_timeout(1000)
 
                         # ポップアップが表示されるまで待機
-                        popup = self.page.locator('#organization_users_id')
+                        popup = self.page.locator('#organization_members_id')
                         try:
                             popup.wait_for(state="visible", timeout=30000)
 
@@ -449,8 +449,8 @@ class CivilinkScraper:
         users = []
 
         try:
-            # ポップアップを取得（#organization_users_id を使用）
-            popup = self.page.locator('#organization_users_id')
+            # ポップアップを取得（#organization_members_id を使用）
+            popup = self.page.locator('#organization_members_id')
             if popup.count() == 0:
                 print("    ポップアップが見つかりません")
                 return users
@@ -749,12 +749,12 @@ class CivilinkScraper:
     def _close_popup(self):
         """ポップアップを閉じる"""
         try:
-            # organization_users_id のポップアップを閉じる
-            popup = self.page.locator('#organization_users_id')
+            # organization_members_id のポップアップを閉じる
+            popup = self.page.locator('#organization_members_id')
 
             if popup.count() > 0:
                 # 方法1: JavaScriptで直接削除（最も確実）
-                self.page.evaluate("document.getElementById('organization_users_id')?.remove()")
+                self.page.evaluate("document.getElementById('organization_members_id')?.remove()")
                 print("    JavaScriptでポップアップを削除しました")
                 self.page.wait_for_timeout(300)
 
@@ -774,7 +774,7 @@ class CivilinkScraper:
             print(f"    ポップアップを閉じる際のエラー: {e}")
             # フォールバック: JavaScriptで強制削除
             try:
-                self.page.evaluate("document.getElementById('organization_users_id')?.remove()")
+                self.page.evaluate("document.getElementById('organization_members_id')?.remove()")
                 print("    フォールバック: JavaScriptで削除")
             except:
                 pass
