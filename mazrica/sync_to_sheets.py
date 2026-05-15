@@ -196,8 +196,10 @@ def filter_deal(deal: Deal, product_name_filter: str, phase_name_filters: list[s
 
     Args:
         deal: 案件データ
-        product_name_filter: 商品名フィルタ（部分一致、大文字小文字無視、空の場合はフィルタなし）。
-            deal.product_name または dealProductDetails のいずれかが一致すればOK。
+        product_name_filter: フィルタ値（部分一致、大文字小文字無視、空の場合はフィルタなし）。
+            AND 条件で次の両方を満たす必要がある:
+              (1) deal.name にこの値を含む
+              (2) deal.product_name または dealProductDetails[].productName のいずれかにこの値を含む
         phase_name_filters: フェーズ名フィルタのリスト（いずれかに完全一致、空リストの場合はフィルタなし）
 
     Returns:
@@ -208,16 +210,25 @@ def filter_deal(deal: Deal, product_name_filter: str, phase_name_filters: list[s
         if deal.phase_name not in phase_name_filters:
             return False
 
-    # 商品名フィルタ: product.name または dealProductDetails[].productName に
-    # 部分一致（大文字小文字無視）。どちらにも一致しなければ対象外。
+    # 案件名 AND 商品名フィルタ
     if product_name_filter:
         needle = product_name_filter.lower()
+
+        # (1) 案件名チェック
+        if not deal.name or needle not in deal.name.lower():
+            return False
+
+        # (2) 商品名チェック: product.name または dealProductDetails[].productName
+        product_match = False
         if deal.product_name and needle in deal.product_name.lower():
-            return True
-        for pd in deal.product_details:
-            if pd.product_name and needle in pd.product_name.lower():
-                return True
-        return False
+            product_match = True
+        else:
+            for pd in deal.product_details:
+                if pd.product_name and needle in pd.product_name.lower():
+                    product_match = True
+                    break
+        if not product_match:
+            return False
 
     return True
 
