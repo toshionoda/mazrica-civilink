@@ -190,13 +190,14 @@ def deal_to_rows(deal: Deal) -> list[list]:
     return [row]
 
 
-def filter_deal(deal: Deal, deal_name_filter: str, phase_name_filters: list[str]) -> bool:
+def filter_deal(deal: Deal, product_name_filter: str, phase_name_filters: list[str]) -> bool:
     """
     案件がフィルタ条件に一致するかチェック
 
     Args:
         deal: 案件データ
-        deal_name_filter: 案件名フィルタ（部分一致、大文字小文字無視、空の場合はフィルタなし）
+        product_name_filter: 商品名フィルタ（部分一致、大文字小文字無視、空の場合はフィルタなし）。
+            deal.product_name または dealProductDetails のいずれかが一致すればOK。
         phase_name_filters: フェーズ名フィルタのリスト（いずれかに完全一致、空リストの場合はフィルタなし）
 
     Returns:
@@ -207,12 +208,16 @@ def filter_deal(deal: Deal, deal_name_filter: str, phase_name_filters: list[str]
         if deal.phase_name not in phase_name_filters:
             return False
 
-    # 案件名フィルタ（deal.name に部分一致、大文字小文字無視）
-    if deal_name_filter:
-        if not deal.name:
-            return False
-        if deal_name_filter.lower() not in deal.name.lower():
-            return False
+    # 商品名フィルタ: product.name または dealProductDetails[].productName に
+    # 部分一致（大文字小文字無視）。どちらにも一致しなければ対象外。
+    if product_name_filter:
+        needle = product_name_filter.lower()
+        if deal.product_name and needle in deal.product_name.lower():
+            return True
+        for pd in deal.product_details:
+            if pd.product_name and needle in pd.product_name.lower():
+                return True
+        return False
 
     return True
 
@@ -273,7 +278,7 @@ def _sync_one_spreadsheet(
 def sync_deals_to_sheets(
     deal_type_id: Optional[int] = None,
     sheet_name: Optional[str] = None,
-    deal_name_filter: Optional[str] = None,
+    product_name_filter: Optional[str] = None,
     phase_name_filters: Optional[list[str]] = None,
     additional_spreadsheet_ids: Optional[list[str]] = None,
 ) -> dict:
@@ -283,7 +288,8 @@ def sync_deals_to_sheets(
     Args:
         deal_type_id: 同期する案件タイプID（Noneの場合は全案件）
         sheet_name: 出力先シート名
-        deal_name_filter: 案件名フィルタ（部分一致、大文字小文字無視）
+        product_name_filter: 商品名フィルタ（部分一致、大文字小文字無視）。
+            deal.product_name または dealProductDetails のいずれかが一致すればOK。
         phase_name_filters: フェーズ名フィルタのリスト（いずれかに完全一致）
         additional_spreadsheet_ids: 追加書き込み先のスプレッドシートIDリスト
 
@@ -292,7 +298,7 @@ def sync_deals_to_sheets(
     """
     sheet_name = sheet_name or Config.SHEET_NAME
     deal_type_id = deal_type_id or Config.DEAL_TYPE_ID
-    deal_name_filter = deal_name_filter if deal_name_filter is not None else Config.FILTER_DEAL_NAME
+    product_name_filter = product_name_filter if product_name_filter is not None else Config.FILTER_PRODUCT_NAME
     phase_name_filters = phase_name_filters if phase_name_filters is not None else Config.get_phase_name_list()
     if additional_spreadsheet_ids is None:
         additional_spreadsheet_ids = Config.get_additional_spreadsheet_ids()
@@ -308,7 +314,7 @@ def sync_deals_to_sheets(
 
     try:
         logger.info("Starting differential sync process...")
-        logger.info(f"Filters: deal_name='{deal_name_filter}', phase_names={phase_name_filters}")
+        logger.info(f"Filters: product_name='{product_name_filter}', phase_names={phase_name_filters}")
         logger.info(f"Targets: active + {additional_spreadsheet_ids}")
 
         # Mazricaクライアント初期化
@@ -326,8 +332,8 @@ def sync_deals_to_sheets(
         logger.info(f"Fetched {len(all_deals)} deals")
 
         # フィルタリング
-        if deal_name_filter or phase_name_filters:
-            deals = [d for d in all_deals if filter_deal(d, deal_name_filter, phase_name_filters)]
+        if product_name_filter or phase_name_filters:
+            deals = [d for d in all_deals if filter_deal(d, product_name_filter, phase_name_filters)]
             logger.info(f"After filtering: {len(deals)} deals")
         else:
             deals = all_deals
